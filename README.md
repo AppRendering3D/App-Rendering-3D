@@ -16,6 +16,7 @@ l'amministratore sceglie a quali app può entrare ognuno (Home › Persone e per
 | `index.html` | Home: scelta dell'app, persone e permessi, account |
 | `config.js` | Collegamento al progetto Firebase (dati non segreti) |
 | `fb3d.js` | Accesso, approvazione, permessi e salvataggio su Firebase |
+| `guida.js` | Guida «?» di Casa e Bordo: si apre da sola la prima volta, poi dal pulsante «?» |
 | `firestore.rules` | Regole del database: da incollare in Firebase › Firestore › Regole |
 | `casa/` | Casa Nuova 3D, con le foto del catalogo in `casa/foto/` |
 | `bordo/` | Bordo 3D |

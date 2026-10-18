@@ -62,7 +62,8 @@ button{touch-action:manipulation}
 .status[data-s="saving"] .dot{background:var(--accent);animation:pulse 1s ease-in-out infinite}
 @keyframes pulse{50%{opacity:.25}}
 @media (max-width:520px){.brand-text{display:none}.status{padding:0 10px}}
-@media (max-width:370px){#redo{display:none}}
+@media (max-width:480px){#redo{display:none}.bar{gap:6px}.bar .gd-btn{width:32px}}
+@media (max-width:420px){#statusText{display:none}}
 
 /* area di lavoro */
 .work{flex:1;min-height:0;display:flex;flex-direction:column;gap:10px}
@@ -320,6 +321,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
     </div>
     <button class="icon-btn" id="undo" data-act="undo" aria-label="Annulla" title="Annulla" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
     <button class="icon-btn" id="redo" data-act="redo" aria-label="Ripristina" title="Ripristina" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg></button>
+    <button class="icon-btn gd-btn" data-act="guida" aria-label="Come funziona" title="Come funziona">?</button>
     <button class="status" id="status" data-act="status" data-s="loading"><span class="dot"></span><span id="statusText">Apro…</span></button>
   </header>
 
@@ -381,6 +383,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 <script src="../config.js"></script>
 <script>window.FB3D_APP = 'casa'; window.FB3D_HOME = '../';</script>
 <script src="../fb3d.js"></script>
+<script src="../guida.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
 <script src="ricalco.js"></script>
 <script>
@@ -2538,6 +2541,7 @@ document.getElementById('app').addEventListener('click', e => {
     case 'view': setView(b.dataset.v); break;
     case 'undo': travel(-1); break;
     case 'redo': travel(1); break;
+    case 'guida': Guida.apri(!$('#arch').hidden ? 'archivio' : S.tab); break;
     case 'status':
       if (S.status === 'dirty' || S.status === 'error') { S.retried = false; publishNow(); }
       else if (S.status === 'local') toast('Le modifiche restano su questo dispositivo');
@@ -3701,7 +3705,7 @@ function showArch(on) { $('#arch').hidden = !on; $('#btnArch').hidden = !SITE ||
 function renderArch() {
   if ($('#arch').hidden) return;
   const fmt = t => { try { return new Date(t).toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' }); } catch (e) { return ''; } };
-  let h = `<div class="arch-top"><div><h1>Le tue case</h1><p class="note">Ogni casa ha la sua pianta, i suoi arredi e i suoi impianti. Tocca una casa per aprirla.</p></div><a class="btn" href="${esc(window.__FB3D.home)}">Home</a></div>
+  let h = `<div class="arch-top"><div><h1>Le tue case</h1><p class="note">Ogni casa ha la sua pianta, i suoi arredi e i suoi impianti. Tocca una casa per aprirla.</p></div><div class="row-btns" style="flex:none;flex-wrap:nowrap"><button class="btn gd-btn" data-act="guida" aria-label="Come funziona" title="Come funziona">?</button><a class="btn" href="${esc(window.__FB3D.home)}">Home</a></div></div>
     <div class="arch-actions"><button class="btn primary" data-act="newCasa"${S.cases === undefined ? ' disabled' : ''}>Nuova casa da planimetria</button><button class="btn" data-act="importCasa">Importa una copia (file)</button></div>`;
   if (S.cases === undefined) h += `<p class="note">Apro l’archivio…</p>`;
   else if (S.cases === null) h += `<div class="arch-empty">Non riesco a leggere l’archivio. Controlla la connessione e riapri la pagina.</div>`;
