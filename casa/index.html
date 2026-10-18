@@ -110,6 +110,7 @@ button{touch-action:manipulation}
 /* pannello */
 .tabs{display:flex;gap:2px;padding:0 8px;border-bottom:1px solid var(--rule);position:sticky;top:0;background:var(--sheet);z-index:1;overflow-x:auto;scrollbar-width:none}
 .tab{flex:none;border:0;background:none;padding:12px 10px 10px;font-size:14px;font-weight:650;color:var(--ink-2);border-bottom:2px solid transparent;cursor:pointer}
+@media (max-width:480px){.tabs{flex-wrap:wrap;row-gap:0}.tab{padding:10px 8px 8px}}
 .tab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
 .pb{padding:14px 16px 20px;display:flex;flex-direction:column;gap:12px}
 .cat-label{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);margin-top:6px}
@@ -1162,7 +1163,8 @@ async function publishNow() {
     } else await art.publish(files);
     up.forEach(k => { S.pending.delete(k); S.gone.delete(k); IDB.del('blobs', k); });
     del.forEach(k => { S.removed.delete(k); S.gone.add(k); });
-    [...S.pending].filter(k => !used.has(k)).forEach(k => S.pending.delete(k));
+    const now = usedPaths(); // ricalcolato: una foto aggiunta mentre si salvava deve restare in coda
+    [...S.pending].filter(k => !now.has(k) && !S.photos.has(k)).forEach(k => S.pending.delete(k));
     S.baseUpdated = p.aggiornato; S.retried = false; S.hadRemote = true;
     if (S.editSeq === seq) { S.dirty = false; setStatus('saved'); } else { setStatus('dirty'); schedulePublish(2500); }
     saveDraft();
@@ -3700,7 +3702,7 @@ function renderArch() {
   if ($('#arch').hidden) return;
   const fmt = t => { try { return new Date(t).toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' }); } catch (e) { return ''; } };
   let h = `<div class="arch-top"><div><h1>Le tue case</h1><p class="note">Ogni casa ha la sua pianta, i suoi arredi e i suoi impianti. Tocca una casa per aprirla.</p></div><a class="btn" href="${esc(window.__FB3D.home)}">Home</a></div>
-    <div class="arch-actions"><button class="btn primary" data-act="newCasa">Nuova casa da planimetria</button><button class="btn" data-act="importCasa">Importa una copia (file)</button></div>`;
+    <div class="arch-actions"><button class="btn primary" data-act="newCasa"${S.cases === undefined ? ' disabled' : ''}>Nuova casa da planimetria</button><button class="btn" data-act="importCasa">Importa una copia (file)</button></div>`;
   if (S.cases === undefined) h += `<p class="note">Apro l’archivio…</p>`;
   else if (S.cases === null) h += `<div class="arch-empty">Non riesco a leggere l’archivio. Controlla la connessione e riapri la pagina.</div>`;
   else if (!S.cases.length) h += `<div class="arch-empty"><b>L’archivio è vuoto.</b> Crea la prima casa partendo dalla planimetria, oppure importa la copia esportata da Casa Nuova 3D su Claude (Progetto › Esporta copia).</div>`;
@@ -3761,7 +3763,10 @@ async function closeCasa() {
 }
 async function newCasa(quiet) {
   if (S.casaId) await closeCasa();
-  const n = (S.cases || []).length, p = emptyProject(n ? 'Casa ' + (n + 1) : 'Casa nuova');
+  const names = new Set((S.cases || []).map(c => c.nome || c.name)); // nome libero, mai uno già usato
+  let n = names.size + 1, nm = names.size ? 'Casa ' + n : 'Casa nuova';
+  while (names.has(nm)) nm = 'Casa ' + (++n);
+  const p = emptyProject(nm);
   p.aggiornato = new Date().toISOString();
   const id = uid();
   try { await Cloud.save(id, p); } catch (e) { toast('Non riesco a creare la casa: controlla la connessione'); return null; }

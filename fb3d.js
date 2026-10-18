@@ -210,12 +210,17 @@
     // se un modello ha finito le richieste gratuite del giorno si passa al successivo
     var models = [window.APP3D_AI_MODEL || 'gemini-3.8-flash'].concat(window.APP3D_AI_RISERVA || []), r, h = { 'Content-Type': 'application/json', 'x-goog-api-key': CFG.apiKey };
     var ac = await appCheck(); if (ac) { try { h['X-Firebase-AppCheck'] = (await ac.getToken()).token; } catch (e) { } }
+    // un modello che oggi ha già detto "finite" si salta fino al giorno dopo (le richieste si azzerano a mezzanotte in California)
+    var oggi = '', finiti = {};
+    try { oggi = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' }); finiti = JSON.parse(localStorage.getItem('app3d-ai-finiti') || '{}'); } catch (e) { }
+    var vivi = models.filter(function (x) { return finiti[x] !== oggi; }); if (vivi.length) models = vivi;
     for (var m = 0; m < models.length; m++) {
       try {
         r = await fetch('https://firebasevertexai.googleapis.com/v1beta/projects/' + CFG.projectId + '/models/' + models[m] + ':generateContent', {
           method: 'POST', headers: h, body: JSON.stringify(body), signal: o.signal });
       } catch (e) { if (e && e.name === 'AbortError') throw { code: 'cancelled', message: 'Annullato' }; throw { code: 'network', message: 'Nessuna connessione' }; }
       if (r.status !== 429 && r.status !== 404) break;
+      if (r.status === 429 && oggi && m < models.length - 1 && /PerDay/i.test(await r.clone().text().catch(function () { return ''; }))) { finiti[models[m]] = oggi; try { localStorage.setItem('app3d-ai-finiti', JSON.stringify(finiti)); } catch (e) { } }
     }
     if (r.status === 401 || r.status === 403) throw { code: 'ai_off', message: 'App Check ha rifiutato la richiesta' };
     if (r.status === 429) throw { code: 'rate_limited', message: 'Troppe richieste' };
