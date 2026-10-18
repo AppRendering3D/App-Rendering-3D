@@ -622,6 +622,7 @@ const IDB = (() => {
 const CL = window.claude && typeof window.claude.use === 'function' ? window.claude : null;
 const useCap = n => { if (!CL) return Promise.resolve(null); try { return CL.use(n).catch(() => null); } catch (e) { return Promise.resolve(null); } };
 const caps = { db: null, user: null, dl: null, sample: null };
+const AI_OFF = 'L’AI non è ancora attiva su questo sito: manca la chiave di sicurezza (reCAPTCHA) in Firebase. Intanto puoi disegnare a mano.';
 const CHUNK = 180000;
 const Store = {
   listeners: [],
@@ -2041,7 +2042,7 @@ async function docReadBoat(file) {
   const id = B().id, ctl = new AbortController(); S.doc = { state: 'busy', ctl }; S.sel = null; S.tab = 'scheda'; renderPanel(true);
   let r;
   try { r = docShapeBoat(await caps.sample.json(DOC_PROMPT, { images: [blob], signal: ctl.signal })); }
-  catch (e) { if (!B() || B().id !== id) return; S.doc = e && e.code === 'cancelled' ? null : { state: 'err', msg: e && e.code === 'rate_limited' ? 'L’AI ha raggiunto il limite di oggi: riprova più tardi.' : 'Non sono riuscito a leggere il documento. Riprova o prova con una foto più nitida.' }; renderPanel(true); return; }
+  catch (e) { if (!B() || B().id !== id) return; S.doc = e && e.code === 'cancelled' ? null : { state: 'err', msg: e && e.code === 'ai_off' ? AI_OFF : e && e.code === 'rate_limited' ? 'L’AI ha raggiunto il limite di oggi: riprova più tardi.' : 'Non sono riuscito a leggere il documento. Riprova o prova con una foto più nitida.' }; renderPanel(true); return; }
   if (!B() || B().id !== id) return;
   if (!r) { S.doc = { state: 'err', msg: 'Nel documento non ho trovato misure o dati della barca.' }; renderPanel(true); return; }
   const before = snapB(), b = B();
@@ -2121,7 +2122,7 @@ async function voceAsk(testo) {
     elementi: b.el.filter(e => e.t === 'arredo' || e.t === 'punto').slice(0, 80).map(e => ({ tipo: e.k, nome: e.n, x: Math.round(e.x), y: Math.round(e.y), z: Math.round(e.z) })) };
   let r;
   try { r = await caps.sample.json(VOCE_PROMPT(v.testo, ctx), { signal: v.ctl.signal }); }
-  catch (e) { if (!S.voce || (e && e.code === 'cancelled')) return; v.state = 'err'; v.msg = e && e.code === 'rate_limited' ? 'L’AI ha raggiunto il limite di oggi: riprova più tardi.' : 'Non sono riuscito a chiedere all’AI. Controlla la connessione e riprova.'; voceRender(); return; }
+  catch (e) { if (!S.voce || (e && e.code === 'cancelled')) return; v.state = 'err'; v.msg = e && e.code === 'ai_off' ? AI_OFF : e && e.code === 'rate_limited' ? 'L’AI ha raggiunto il limite di oggi: riprova più tardi.' : 'Non sono riuscito a chiedere all’AI. Controlla la connessione e riprova.'; voceRender(); return; }
   if (!S.voce) return;
   v.az = voceActions(r && Array.isArray(r.azioni) ? r.azioni : [], m.L); v.dubbio = r && typeof r.dubbio === 'string' ? r.dubbio.trim().slice(0, 200) : '';
   if (!v.az.length) { v.state = 'err'; v.msg = v.dubbio || 'Non ho capito cosa fare. Prova a dirlo in un altro modo.'; voceRender(); return; }

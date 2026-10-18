@@ -217,7 +217,7 @@
       } catch (e) { if (e && e.name === 'AbortError') throw { code: 'cancelled', message: 'Annullato' }; throw { code: 'network', message: 'Nessuna connessione' }; }
       if (r.status !== 429 && r.status !== 404) break;
     }
-    if (r.status === 401) throw { code: 'error', message: 'App Check ha rifiutato la richiesta' };
+    if (r.status === 401 || r.status === 403) throw { code: 'ai_off', message: 'App Check ha rifiutato la richiesta' };
     if (r.status === 429) throw { code: 'rate_limited', message: 'Troppe richieste' };
     if (!r.ok) throw { code: 'error', message: 'Gemini ha risposto ' + r.status };
     var d = await r.json(), c = d.candidates && d.candidates[0], txt = ((c && c.content && c.content.parts) || []).map(function (p) { return p.thought ? '' : (p.text || ''); }).join('');

@@ -676,6 +676,7 @@ const CL = window.claude && typeof window.claude.use === 'function' ? window.cla
 const useCap = n => { if (!CL) return Promise.resolve(null); try { return CL.use(n).catch(() => null); } catch (e) { return Promise.resolve(null); } };
 const ART = useCap('artifact');
 const caps = { dl: null, sample: null, img: false };
+const AI_OFF = 'L’AI non è ancora attiva su questo sito: manca la chiave di sicurezza (reCAPTCHA) in Firebase. Intanto puoi disegnare a mano.';
 useCap('downloads').then(d => { caps.dl = d; refreshCaps(); });
 useCap('sample').then(async s => {
   if (s) { caps.sample = s; try { const lim = await s.limits(); caps.img = !!(lim && lim.images); } catch (e) { caps.img = false; } }
@@ -2736,6 +2737,7 @@ async function aiRead(id, blob) {
     const code = e && e.code;
     if (code === 'cancelled') { S.ai = null; renderPanel(true); return; }
     if (['not_granted', 'sampling_disabled', 'not_declared', 'capability_disabled', 'capability_removed', 'images_unavailable'].includes(code)) { caps.img = false; msg = 'La lettura automatica non è disponibile qui: inserisci le misure a mano.'; }
+    else if (code === 'ai_off') msg = AI_OFF;
     else if (code === 'rate_limited') msg = 'Troppe richieste ravvicinate: riprova tra un po’.';
     else if (code === 'image_rejected') msg = 'Questa foto non si può leggere: provane un’altra.';
     else if (code === 'session_expired') msg = 'Devi accedere di nuovo a Claude per leggere la foto.';
@@ -3251,7 +3253,7 @@ async function docRead(file) {
   const ctl = new AbortController(); S.doc = { state: 'busy', ctl }; S.sel = null; S.tab = 'pianta'; if (S.collapsed) setCollapsed(false); renderPanel(true); updateEmpty();
   let r;
   try { r = docShapeCasa(await caps.sample.json(DOC_PROMPT, { images: [blob], signal: ctl.signal })); }
-  catch (e) { S.doc = e && e.code === 'cancelled' ? null : { state: 'err', msg: e && e.code === 'rate_limited' ? 'L’AI ha raggiunto il limite di oggi: riprova più tardi.' : 'Non sono riuscito a leggere il documento. Riprova o prova con una foto più nitida.' }; renderPanel(true); updateEmpty(); return; }
+  catch (e) { S.doc = e && e.code === 'cancelled' ? null : { state: 'err', msg: e && e.code === 'ai_off' ? AI_OFF : e && e.code === 'rate_limited' ? 'L’AI ha raggiunto il limite di oggi: riprova più tardi.' : 'Non sono riuscito a leggere il documento. Riprova o prova con una foto più nitida.' }; renderPanel(true); updateEmpty(); return; }
   if (!r) { S.doc = { state: 'err', msg: 'Nel documento non ho trovato stanze con misure. Prova con la pianta più grande o più nitida.' }; renderPanel(true); updateEmpty(); return; }
   // anteprima: si applica al progetto, «Annulla» rimette com'era
   const before = snap(), p = P(), t = r.spessore;
@@ -3332,7 +3334,7 @@ async function voceAsk(testo) {
   const p = P(), ctx = { stanze: p.stanze.map(r => ({ id: r.id, nome: r.nome, x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.w), h: Math.round(r.h) })), altezza: p.altezza, stanzaScelta: S.sel && S.sel.k === 'room' ? S.sel.id : null };
   let r;
   try { r = await caps.sample.json(VOCE_PROMPT(v.testo, ctx), { signal: v.ctl.signal }); }
-  catch (e) { if (!S.voce) return; if (e && e.code === 'cancelled') return; v.state = 'err'; v.msg = e && e.code === 'rate_limited' ? 'L’AI ha raggiunto il limite di oggi: riprova più tardi.' : 'Non sono riuscito a chiedere all’AI. Controlla la connessione e riprova.'; voceRender(); return; }
+  catch (e) { if (!S.voce) return; if (e && e.code === 'cancelled') return; v.state = 'err'; v.msg = e && e.code === 'ai_off' ? AI_OFF : e && e.code === 'rate_limited' ? 'L’AI ha raggiunto il limite di oggi: riprova più tardi.' : 'Non sono riuscito a chiedere all’AI. Controlla la connessione e riprova.'; voceRender(); return; }
   if (!S.voce) return;
   v.az = voceActions(r && Array.isArray(r.azioni) ? r.azioni : []); v.dubbio = r && typeof r.dubbio === 'string' ? r.dubbio.trim().slice(0, 200) : '';
   if (!v.az.length) { v.state = 'err'; v.msg = v.dubbio || 'Non ho capito cosa fare. Prova a dirlo in un altro modo.'; voceRender(); return; }
