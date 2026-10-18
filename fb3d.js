@@ -207,12 +207,16 @@
     for (var i = 0; i < (o.images || []).length; i++) { var b = o.images[i]; parts.push({ inline_data: { mime_type: b.type || 'image/jpeg', data: await blobB64(b) } }); }
     var body = { contents: [{ role: 'user', parts: parts }] };
     if (asJson) body.generationConfig = { responseMimeType: 'application/json' };
-    var model = window.APP3D_AI_MODEL || 'gemini-3.8-flash', r, h = { 'Content-Type': 'application/json', 'x-goog-api-key': CFG.apiKey };
+    // se un modello ha finito le richieste gratuite del giorno si passa al successivo
+    var models = [window.APP3D_AI_MODEL || 'gemini-3.8-flash'].concat(window.APP3D_AI_RISERVA || []), r, h = { 'Content-Type': 'application/json', 'x-goog-api-key': CFG.apiKey };
     var ac = await appCheck(); if (ac) { try { h['X-Firebase-AppCheck'] = (await ac.getToken()).token; } catch (e) { } }
-    try {
-      r = await fetch('https://firebasevertexai.googleapis.com/v1beta/projects/' + CFG.projectId + '/models/' + model + ':generateContent', {
-        method: 'POST', headers: h, body: JSON.stringify(body), signal: o.signal });
-    } catch (e) { if (e && e.name === 'AbortError') throw { code: 'cancelled', message: 'Annullato' }; throw { code: 'network', message: 'Nessuna connessione' }; }
+    for (var m = 0; m < models.length; m++) {
+      try {
+        r = await fetch('https://firebasevertexai.googleapis.com/v1beta/projects/' + CFG.projectId + '/models/' + models[m] + ':generateContent', {
+          method: 'POST', headers: h, body: JSON.stringify(body), signal: o.signal });
+      } catch (e) { if (e && e.name === 'AbortError') throw { code: 'cancelled', message: 'Annullato' }; throw { code: 'network', message: 'Nessuna connessione' }; }
+      if (r.status !== 429 && r.status !== 404) break;
+    }
     if (r.status === 401) throw { code: 'error', message: 'App Check ha rifiutato la richiesta' };
     if (r.status === 429) throw { code: 'rate_limited', message: 'Troppe richieste' };
     if (!r.ok) throw { code: 'error', message: 'Gemini ha risposto ' + r.status };
