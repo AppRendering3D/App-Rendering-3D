@@ -338,7 +338,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
       <div class="empty" id="empty" hidden>
         <div>
           <p><b>La pianta è vuota.</b> Parti dalla planimetria del geometra oppure inserisci le stanze con le misure.</p>
-          <div class="row-btns"><button class="btn primary" data-act="planLoad">Carica planimetria</button><button class="btn" data-act="addRoom">Aggiungi stanza</button></div>
+          <div class="row-btns"><button class="btn primary" data-act="docLoad" id="emptyDoc">Crea dal documento</button><button class="btn" data-act="planLoad">Carica planimetria</button><button class="btn" data-act="addRoom">Aggiungi stanza</button></div>
         </div>
       </div>
       <div class="glfail" id="glfail" hidden>La vista 3D non si è avviata su questo dispositivo. La pianta funziona lo stesso.</div>
@@ -353,6 +353,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <input type="file" id="fileFoto" accept="image/*" hidden>
   <input type="file" id="filePlan" accept="image/*" hidden>
+  <input type="file" id="fileDoc" accept="image/*,application/pdf,.pdf" hidden>
   <input type="file" id="fileImport" accept=".json,application/json" hidden>
   <div id="arch" hidden><div class="in" id="archIn"></div></div>
   <div id="fogli" class="overlay" hidden></div>
@@ -625,7 +626,7 @@ useCap('sample').then(async s => {
   if (s) { caps.sample = s; try { const lim = await s.limits(); caps.img = !!(lim && lim.images); } catch (e) { caps.img = false; } }
   refreshCaps();
 });
-function refreshCaps() { $('#btnShot').hidden = !caps.dl; renderPanel(); }
+function refreshCaps() { $('#btnShot').hidden = !caps.dl; renderPanel(); if (P()) updateEmpty(); }
 
 /* ================= sito proprio: archivio delle case su Firebase ================= */
 const SITE = !!window.__FB3D;
@@ -1275,7 +1276,7 @@ function updateScaleBar() {
   const px = L * s, lab = L >= 100 ? (L / 100).toLocaleString('it-IT') + ' m' : L + ' cm';
   scalebar.innerHTML = `<div class="bars" style="width:${Math.round(px)}px"><i style="width:25%"></i><i style="width:25%"></i><i style="width:50%"></i></div><div class="lab" style="width:${Math.round(px) + 2}px"><span>0</span><span>${lab}</span></div>`;
 }
-function updateEmpty() { emptyEl.hidden = !(P() && !P().stanze.length && !P().arredi.length && !P().planimetria && S.view === 'plan'); }
+function updateEmpty() { emptyEl.hidden = !(P() && !P().stanze.length && !P().arredi.length && !P().planimetria && S.view === 'plan') || !!(S.doc && S.doc.state === 'busy'); const d = $('#emptyDoc'); if (d) d.hidden = !caps.sample; }
 
 /* ================= selezione ================= */
 function selected() {
@@ -2037,6 +2038,7 @@ function tabsHTML() {
     o += `<p class="note">Usa le misure nette, da muro a muro a intonaco finito: sulle piante del geometra sono le quote interne. Tocca una stanza nella pianta per spostarla o tirarne gli angoli.</p>`;
   } else if (S.tab === 'pianta') {
     const pl = p.planimetria;
+    if (caps.sample) o += docBanner() || `<button class="cta" data-act="docLoad">${I.cam}<span><b>Crea dal documento</b><small>Foto o PDF della planimetria: l’AI disegna stanze, porte e finestre con le misure.</small></span></button>`;
     if (!pl) {
       o += `<p class="note">Carica una foto o uno screenshot della pianta (JPG o PNG). Poi imposti la scala su una quota che conosci e ricalchi le stanze sopra.</p><button class="btn primary" data-act="planLoad">Carica planimetria</button>`;
     } else {
@@ -2298,6 +2300,10 @@ document.getElementById('app').addEventListener('click', e => {
       P().stanze = P().stanze.filter(r => r !== sel.o); S.armed = null; select(null); changed(); toast('Stanza eliminata. I mobili sono rimasti al loro posto'); break;
     case 'enterRoom': if (sel && sel.k === 'room') { const id = sel.o.id; setView('3d'); if (T.ok) { enterRoom(id); roomSel.value = id; } } break;
     case 'planLoad': $('#filePlan').value = ''; $('#filePlan').click(); break;
+    case 'docLoad': if (!caps.sample) { toast('L’AI non è disponibile qui'); break; } $('#fileDoc').value = ''; $('#fileDoc').click(); break;
+    case 'docStop': if (S.doc && S.doc.ctl) S.doc.ctl.abort(); S.doc = null; renderPanel(true); break;
+    case 'docOk': if (S.doc && S.doc.state === 'preview') S.doc.dv.slice().reverse().forEach(t => addIdea('Da verificare (letto dall’AI): ' + t)); S.doc = null; renderPanel(true); break;
+    case 'docUndo': if (S.doc && S.doc.before) { S.project = normalize(JSON.parse(S.doc.before)); S.doc = null; S.sel = null; changed(); fitView(); renderPanel(true); updateEmpty(); toast('Tutto come prima'); } break;
     case 'calib': if (S.metroOn) setMetro(false); startCalib(); if (S.collapsed === false && window.innerWidth < 860) setCollapsed(true); break;
     case 'calCancel': S.calib = null; renderHint(); requestDraw(); break;
     case 'calApply': calibApply(); break;
@@ -2916,6 +2922,77 @@ fvEl.addEventListener('change', e => {
 fvEl.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('input')) e.target.blur(); });
 window.addEventListener('resize', () => { if (!S.fv) return; if (S.fv.rc) drawRectFv(); else { S.fv.vp = null; drawFv(); } });
 
+
+/* ================= crea da documento (AI) ================= */
+/* Planimetria in foto o PDF › Gemini legge stanze, porte e finestre › anteprima nella pianta › Usa o Annulla */
+const DOC_PROMPT = `Questo documento è la planimetria di una casa (disegno del geometra, foto di una pianta, PDF di un annuncio o di un progetto).
+Ricostruisci la pianta in centimetri. Rispondi solo con un oggetto JSON:
+{"nome": "nome breve della casa o dell'appartamento, se scritto", "altezza": altezza dei soffitti in cm (270 se non scritta), "spessore": spessore dei muri interni in cm (di solito 10-15),
+ "stanze": [{"nome": "Cucina", "x": cm, "y": cm, "w": larghezza netta in cm, "h": profondità netta in cm, "misureScritte": true se le misure sono quotate o scritte nel disegno}],
+ "aperture": [{"tipo": "porta" | "finestra" | "portafinestra", "x": cm, "y": cm, "larghezza": cm, "altezza": cm, "daTerra": cm, "muro": "h" se sta su un muro orizzontale del disegno, "v" se su un muro verticale}],
+ "riquadro": {"x0": 0-1, "y0": 0-1, "x1": 0-1, "y1": 0-1},
+ "daVerificare": ["frasi brevi su cosa non si legge bene o hai stimato"]}
+Regole:
+- Origine in alto a sinistra del disegno, x verso destra, y verso il basso. Ogni stanza è un rettangolo con le misure nette interne (da muro a muro). Le stanze a L dividile in due rettangoli con lo stesso nome seguito da 1 e 2.
+- Tra due stanze vicine lascia esattamente lo spessore del muro, così i muri combaciano.
+- Se ci sono quote o metri quadri scritti, usali: hanno la precedenza su quello che misuri a occhio. Se c'è una scala grafica usala.
+- Per le aperture x e y sono il centro, sulla linea del muro. Porte interne larghe 80 e alte 210 se non scritto; finestre alte 140 da terra 90; portefinestre alte 230 da terra 0.
+- "riquadro" è il rettangolo che contiene tutte le stanze, in frazioni della pagina o della foto (0 = sinistra/alto, 1 = destra/basso).
+- Ignora mobili, sanitari e testo che non riguarda la pianta. Se ci sono più piani, prendi solo il primo e scrivilo in daVerificare.`;
+function docShapeCasa(r) {
+  if (!r || typeof r !== 'object' || !Array.isArray(r.stanze)) return null;
+  const st = r.stanze.map(q => ({ nome: String(q.nome || 'Stanza').slice(0, 40), x: num(q.x), y: num(q.y), w: num(q.w), h: num(q.h) })).filter(q => q.x != null && q.y != null && q.w >= 40 && q.h >= 40 && q.w <= 5000 && q.h <= 5000);
+  if (!st.length) return null;
+  const x0 = Math.min(...st.map(q => q.x)), y0 = Math.min(...st.map(q => q.y));
+  const ap = (Array.isArray(r.aperture) ? r.aperture : []).map(a => ({ t: ['porta', 'finestra', 'portafinestra'].includes(a.tipo) ? a.tipo : 'porta', x: num(a.x), y: num(a.y), w: num(a.larghezza), h: num(a.altezza), z: num(a.daTerra), v: a.muro === 'v' })).filter(a => a.x != null && a.y != null);
+  const rq = r.riquadro && ['x0', 'y0', 'x1', 'y1'].every(k => num(r.riquadro[k]) != null) ? r.riquadro : null;
+  return { nome: typeof r.nome === 'string' ? r.nome.trim().slice(0, 60) : '', altezza: clamp(num(r.altezza) || 270, 200, 500), spessore: clamp(num(r.spessore) || 15, 5, 60), st, ap, x0, y0, rq,
+    dv: (Array.isArray(r.daVerificare) ? r.daVerificare : []).filter(x => typeof x === 'string' && x.trim()).slice(0, 12) };
+}
+async function docRead(file) {
+  if (!caps.sample) { toast('L’AI non è disponibile qui'); return; }
+  const pdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+  if (!pdf && !/^image\//.test(file.type)) { toast('Serve una foto o un PDF'); return; }
+  if (file.size > 15e6) { toast('File troppo grande: massimo 15 MB'); return; }
+  let blob = file, img = null, j = null;
+  if (!pdf) { const u = URL.createObjectURL(file); try { img = await loadImg(u); j = await toJpeg(img, 2400, .85); blob = j.blob; } catch (e) { toast('Non riesco ad aprire il file'); return; } finally { URL.revokeObjectURL(u); } }
+  else blob = new Blob([await file.arrayBuffer()], { type: 'application/pdf' });
+  const ctl = new AbortController(); S.doc = { state: 'busy', ctl }; S.sel = null; S.tab = 'pianta'; if (S.collapsed) setCollapsed(false); renderPanel(true); updateEmpty();
+  let r;
+  try { r = docShapeCasa(await caps.sample.json(DOC_PROMPT, { images: [blob], signal: ctl.signal })); }
+  catch (e) { S.doc = e && e.code === 'cancelled' ? null : { state: 'err', msg: e && e.code === 'rate_limited' ? 'L’AI ha raggiunto il limite di oggi: riprova più tardi.' : 'Non sono riuscito a leggere il documento. Riprova o prova con una foto più nitida.' }; renderPanel(true); updateEmpty(); return; }
+  if (!r) { S.doc = { state: 'err', msg: 'Nel documento non ho trovato stanze con misure. Prova con la pianta più grande o più nitida.' }; renderPanel(true); updateEmpty(); return; }
+  // anteprima: si applica al progetto, «Annulla» rimette com'era
+  const before = snap(), p = P(), t = r.spessore;
+  const ox = p.stanze.length ? (roomsBounds() || { x1: 0 }).x1 + 200 : 0, oy = p.stanze.length ? (roomsBounds() || { y0: 0 }).y0 : 0;
+  const X = x => Math.round(x - r.x0 + ox), Y = y => Math.round(y - r.y0 + oy);
+  if (!p.stanze.length && !p.arredi.length) { p.altezza = r.altezza; p.spessore = t; if (r.nome && /^Casa (nuova|\d+)$/.test(p.nome)) p.nome = r.nome; }
+  p.esempio = false;
+  const ids = [];
+  for (const q of r.st) { const room = { id: uid(), nome: q.nome, x: X(q.x), y: Y(q.y), w: Math.round(q.w), h: Math.round(q.h), pav: 'legno', muri: true, lbl: true }; p.stanze.push(room); ids.push(room.id); }
+  let nAp = 0;
+  for (const a of r.ap) {
+    const it = makeItem(catDef(a.t), X(a.x), Y(a.y), a.v ? 90 : 0);
+    if (a.w >= 30 && a.w <= 600) it.w = Math.round(a.w); if (a.h >= 30 && a.h <= 400) it.h = Math.round(a.h); if (a.z != null && a.z >= 0 && a.z <= 300) it.z = Math.round(a.z);
+    it.d = p.spessore; snapOpening(it); p.arredi.push(it); nAp++;
+  }
+  if (img && j && !p.planimetria && r.rq) { // la planimetria resta sotto, già in scala con le stanze
+    const rb = { x0: Math.min(...r.st.map(q => q.x)), x1: Math.max(...r.st.map(q => q.x + q.w)), y0: Math.min(...r.st.map(q => q.y)) };
+    const pw = (r.rq.x1 - r.rq.x0) * j.w;
+    if (pw > 20) { const k = (rb.x1 - rb.x0) / pw, path = 'foto/pianta-' + uid() + '.jpg'; S.photos.set(path, j.blob); S.pending.add(path); IDB.put('blobs', path, j.blob);
+      p.planimetria = { src: path, iw: j.w, ih: j.h, k, x: X(rb.x0) - r.rq.x0 * j.w * k, y: Y(rb.y0) - r.rq.y0 * j.h * k, op: .4, vis: true }; }
+  }
+  S.doc = { state: 'preview', before, n: r.st.length, nAp, dv: r.dv }; S.sel = null; S.tab = 'pianta';
+  changed(); fitView(); renderPanel(true); updateEmpty();
+}
+function docBanner() {
+  const d = S.doc; if (!d) return '';
+  if (d.state === 'busy') return `<div class="ai busy"><span>Leggo il documento con l’AI</span><button class="btn sm" data-act="docStop">Annulla</button></div>`;
+  if (d.state === 'err') return `<div class="banner warn"><p>${esc(d.msg)}</p><div class="row-btns"><button class="btn sm" data-act="docOk">Chiudi</button></div></div>`;
+  return `<div class="banner"><p><b>Ecco cosa ho letto:</b> ${d.n} ${d.n === 1 ? 'stanza' : 'stanze'}${d.nAp ? ` e ${d.nAp} tra porte e finestre` : ''}. Controlla nella pianta e nel 3D.</p>${d.dv.length ? `<p class="note">Da verificare: ${d.dv.map(esc).join(' · ')}</p>` : ''}<div class="row-btns"><button class="btn sm primary" data-act="docOk">Usa</button><button class="btn sm" data-act="docUndo">Annulla</button></div></div>`;
+}
+$('#fileDoc').addEventListener('change', e => { const f = e.target.files && e.target.files[0]; if (f) docRead(f); });
+
 /* esporta / importa */
 async function exportProject() {
   if (!caps.dl) return;
@@ -3062,6 +3139,7 @@ function resetForOpen() {
   clearTimeout(pubT); clearTimeout(draftT);
   if (S.metroOn) setMetro(false);
   S.sel = null; S.calib = null; S.armed = null; S.conflict = null; S.pasteOpen = false;
+  if (S.doc && S.doc.ctl) S.doc.ctl.abort(); S.doc = null;
   if (S.fv) { S.fv = null; fvEl.hidden = true; fvEl.innerHTML = ''; }
   S.pending.clear(); S.removed.clear(); S.gone.clear();
   S.dirty = false; S.retried = false; S.readOnly = false; S.editSeq++;

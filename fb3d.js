@@ -188,6 +188,17 @@
     }
   };
 
+  /* ---------- App Check: solo questo sito può usare l'AI (se la chiave reCAPTCHA è in config.js) ---------- */
+  var APPCHECK = null;
+  function appCheck() {
+    if (!window.APP3D_RECAPTCHA) return Promise.resolve(null);
+    if (!APPCHECK) APPCHECK = new Promise(function (res) {
+      var sc = document.createElement('script'); sc.src = 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app-check-compat.js';
+      sc.onload = function () { try { var ac = firebase.appCheck(); ac.activate(new firebase.appCheck.ReCaptchaV3Provider(window.APP3D_RECAPTCHA), true); res(ac); } catch (e) { res(null); } };
+      sc.onerror = function () { res(null); }; document.head.appendChild(sc);
+    });
+    return APPCHECK;
+  }
   /* ---------- AI: Gemini tramite Firebase AI Logic ---------- */
   function blobB64(b) { return new Promise(function (res, rej) { var r = new FileReader(); r.onload = function () { res(String(r.result).split(',')[1]); }; r.onerror = function () { rej(r.error); }; r.readAsDataURL(b); }); }
   async function gemini(prompt, o, asJson) {
@@ -196,11 +207,13 @@
     for (var i = 0; i < (o.images || []).length; i++) { var b = o.images[i]; parts.push({ inline_data: { mime_type: b.type || 'image/jpeg', data: await blobB64(b) } }); }
     var body = { contents: [{ role: 'user', parts: parts }] };
     if (asJson) body.generationConfig = { responseMimeType: 'application/json' };
-    var model = window.APP3D_AI_MODEL || 'gemini-3.8-flash', r;
+    var model = window.APP3D_AI_MODEL || 'gemini-3.8-flash', r, h = { 'Content-Type': 'application/json', 'x-goog-api-key': CFG.apiKey };
+    var ac = await appCheck(); if (ac) { try { h['X-Firebase-AppCheck'] = (await ac.getToken()).token; } catch (e) { } }
     try {
       r = await fetch('https://firebasevertexai.googleapis.com/v1beta/projects/' + CFG.projectId + '/models/' + model + ':generateContent', {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': CFG.apiKey }, body: JSON.stringify(body), signal: o.signal });
+        method: 'POST', headers: h, body: JSON.stringify(body), signal: o.signal });
     } catch (e) { if (e && e.name === 'AbortError') throw { code: 'cancelled', message: 'Annullato' }; throw { code: 'network', message: 'Nessuna connessione' }; }
+    if (r.status === 401) throw { code: 'error', message: 'App Check ha rifiutato la richiesta' };
     if (r.status === 429) throw { code: 'rate_limited', message: 'Troppe richieste' };
     if (!r.ok) throw { code: 'error', message: 'Gemini ha risposto ' + r.status };
     var d = await r.json(), c = d.candidates && d.candidates[0], txt = ((c && c.content && c.content.parts) || []).map(function (p) { return p.thought ? '' : (p.text || ''); }).join('');

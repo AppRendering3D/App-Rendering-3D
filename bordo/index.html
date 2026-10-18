@@ -161,6 +161,8 @@ button{touch-action:manipulation}
 .row-btns{display:flex;flex-wrap:wrap;gap:8px}
 .row-btns>.btn{flex:1 1 auto}
 .stack{display:flex;flex-direction:column;gap:8px}
+.ai{border-radius:10px;padding:10px 12px;font-size:13.5px;display:flex;gap:10px;align-items:center;justify-content:space-between;background:var(--board);border:1px solid var(--rule)}
+.ai.busy span::after{content:"";display:inline-block;width:8px;height:8px;margin-left:8px;border-radius:50%;background:var(--accent);animation:pulse 1s infinite}
 .banner{border:1px solid var(--rule);background:var(--board);border-radius:12px;padding:12px 13px;display:flex;flex-direction:column;gap:10px}
 .banner p{margin:0;font-size:13.5px}
 .banner.warn{border-color:var(--warn);background:var(--warn-soft)}
@@ -351,6 +353,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
   <div class="overlay" id="rectify" hidden></div>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <input type="file" id="fileImg" accept="image/*" hidden>
+  <input type="file" id="fileDoc" accept="image/*,application/pdf,.pdf" hidden>
   <input type="file" id="fileJson" accept=".json,application/json" hidden>
 </div>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
@@ -609,13 +612,14 @@ const IDB = (() => {
 })();
 const CL = window.claude && typeof window.claude.use === 'function' ? window.claude : null;
 const useCap = n => { if (!CL) return Promise.resolve(null); try { return CL.use(n).catch(() => null); } catch (e) { return Promise.resolve(null); } };
-const caps = { db: null, user: null, dl: null };
+const caps = { db: null, user: null, dl: null, sample: null };
 const CHUNK = 180000;
 const Store = {
   listeners: [],
   async init() {
     const [db, user, dl] = await Promise.all([useCap('db'), useCap('user'), useCap('downloads')]);
     caps.db = db; caps.user = user; caps.dl = dl;
+    useCap('sample').then(x => { caps.sample = x; if (B()) renderPanel(); });
     S.mode = db ? 'db' : 'local';
     if (user) { try { const c = await user.can('data.write'); if (c === false) S.readOnly = true; } catch (e) {} }
   },
@@ -1419,6 +1423,7 @@ function tabScheda() {
   const b = B(), P = b.scafo, m = model(), tr = m.fromTrace;
   let o = '';
   if (b.esempio) o += `<div class="banner"><p><b>Questa è una barca di esempio.</b> Puoi modificarla liberamente, oppure creare la tua dall'archivio.</p></div>`;
+  if (caps.sample) o += docBanner() || `<button class="cta" data-act="docLoad">${I.cam}<span><b>Compila dal documento</b><small>Foto o PDF di scheda tecnica, brochure o manuale: l’AI imposta misure, carena e interni.</small></span></button>`;
   o += txtField('b-nome', 'Nome della barca', b.nome, 'data-b', 'nome');
   o += selField('b-tipo', 'Tipo di carena', Object.entries(TIPI), P.tipo, 'data-sc', 'tipo');
   o += `<div class="lab">Dimensioni della carena</div>`;
@@ -1687,6 +1692,7 @@ archive.addEventListener('input', e => { if (e.target.id === 'q') { S.query = e.
 
 function openBoat(id) {
   if (S.unsub) { S.unsub(); S.unsub = null; }
+  if (S.doc && S.doc.ctl) S.doc.ctl.abort(); S.doc = null;
   S.boat = null; S.sel = null; S.trace = null; S.draw = null; S.metro = null; S.remote = null; S.dirty = false; S.myRevs.clear(); MODEL = null;
   S.vps = { alto: null, fianco: null, img: null }; T3.framed = false;
   S.unsub = Store.watchBoat(id, (data) => onBoatSnap(id, data));
@@ -1981,7 +1987,7 @@ $('#fileJson').addEventListener('change', async e => {
 });
 function newBoatModal() {
   if (guard()) return;
-  openModal(`<h3>Nuova barca</h3>${txtField('nb-n', 'Nome della barca', '', 'data-nb', 'n')}${selField('nb-t', 'Tipo di carena', Object.entries(TIPI), 'planante', 'data-nb', 't')}<div class="fields two">${numField('nb-l', 'Lunghezza fuori tutto', '750', 'cm', 'data-nb', 'l')}${numField('nb-b', 'Larghezza massima', '255', 'cm', 'data-nb', 'b')}</div><p class="note">Le trovi nel manuale del proprietario. Poi puoi inserire il disegno o una foto di fianco per avere la forma precisa.</p><div class="row-btns"><button class="btn primary" data-act="nbOk">Crea la barca</button><button class="btn" data-act="modalClose">Annulla</button></div>`);
+  openModal(`<h3>Nuova barca</h3>${txtField('nb-n', 'Nome della barca', '', 'data-nb', 'n')}${selField('nb-t', 'Tipo di carena', Object.entries(TIPI), 'planante', 'data-nb', 't')}<div class="fields two">${numField('nb-l', 'Lunghezza fuori tutto', '750', 'cm', 'data-nb', 'l')}${numField('nb-b', 'Larghezza massima', '255', 'cm', 'data-nb', 'b')}</div><p class="note">Le trovi nel manuale del proprietario. Poi puoi inserire il disegno o una foto di fianco per avere la forma precisa.</p><div class="row-btns"><button class="btn primary" data-act="nbOk">Crea la barca</button><button class="btn" data-act="modalClose">Annulla</button></div>${caps.sample ? '<button class="btn" data-act="nbDoc">Oppure crea dal documento (foto o PDF)</button>' : ''}`);
 }
 async function newBoatOk() {
   const n = $('#nb-n').value.trim() || 'Barca nuova', t = $('#nb-t').value, l = num($('#nb-l').value) || 750, w = num($('#nb-b').value) || 255;
@@ -1989,6 +1995,74 @@ async function newBoatOk() {
   closeModal();
   try { await Store.saveBoat(b); openBoat(b.id); } catch (e) { toast(e && e.code === 'invalid_argument' ? 'Sola lettura: chiedi il permesso di modifica' : 'Non riesco a creare la barca'); }
 }
+
+
+/* ================= crea dal documento (AI) ================= */
+/* Scheda tecnica, brochure, manuale o disegno › Gemini legge misure, carena e interni › anteprima › Usa o Annulla */
+const DOC_PROMPT = `Questo documento riguarda una barca: scheda tecnica, brochure del cantiere, pagina del manuale del proprietario, disegno o foto.
+Ricava i dati per ricostruirla in 3D. Rispondi solo con un oggetto JSON:
+{"nome": "marca e modello", "tipo": "planante" (motoscafo) | "gommone" (gommone o semirigido) | "vela",
+ "scheda": {KEYS},
+ "scafo": {"L": lunghezza dello scafo in cm (senza pulpiti e plancette), "B": larghezza dello scafo in cm (per i gommoni senza i tubolari), "T": immersione dello scafo in cm, "Fa": bordo libero a poppa in cm, "Fb": bordo libero a prua in cm, "betaA": angolo della V a poppa in gradi, "tubo": diametro dei tubolari in cm (solo gommoni), "pescaggio": pescaggio totale con chiglia in cm (solo vela), "pozzettoDa": inizio del pozzetto aperto in frazione della lunghezza da poppa (0-1), "pozzettoA": fine del pozzetto (0-1)},
+ "interni": [{"tipo": una tra ${ARREDI.map(a => a.k).join(', ')}, "nome": "nome breve", "x": centro in cm da poppa, "y": centro in cm dall'asse (positivo a dritta), "z": base in cm sopra la linea di galleggiamento (negativo se sotto), "w": lunghezza in cm lungo la barca, "d": larghezza in cm, "h": altezza in cm}],
+ "daVerificare": ["frasi brevi su cosa hai stimato o non si legge bene"]}
+Regole: usa i numeri scritti nel documento quando ci sono, convertendo metri e piedi in cm. Ometti i campi che non riesci né a leggere né a stimare in modo ragionevole. Gli interni mettili solo se il documento mostra la disposizione (pianta degli interni o descrizione), stimando le posizioni dal disegno. Tutto quello che stimi scrivilo in daVerificare.`.replace('KEYS', 'marca, modello, anno, categoria (A/B/C/D), loa (cm), bmax (cm), dislocamento (kg), portata (kg), persone, potenzaMax (kW), motore (testo), potenza (kW), carburante (litri), acqua (litri), nere (litri), batterie (testo), impianto (testo, es. 12 V)');
+function docShapeBoat(r) {
+  if (!r || typeof r !== 'object') return null;
+  const sc = r.scafo && typeof r.scafo === 'object' ? r.scafo : {}, out = { tipo: TIPI[r.tipo] ? r.tipo : null, nome: typeof r.nome === 'string' ? r.nome.trim().slice(0, 60) : '', scheda: {}, scafo: {}, el: [], dv: [] };
+  const sh = r.scheda && typeof r.scheda === 'object' ? r.scheda : {};
+  for (const [k, , u] of SCHEDA) { const v = sh[k]; if (v == null || v === '') continue; if (u === 'text') out.scheda[k] = String(v).slice(0, 80); else if (u === 'cat') { if (CATEGORIE.includes(String(v).toUpperCase())) out.scheda[k] = String(v).toUpperCase(); } else { const n = num(v); if (n != null && n > 0) out.scheda[k] = n; } }
+  const lim = { L: [200, 5000], B: [60, 1500], T: [5, 400], Fa: [10, 500], Fb: [10, 600], betaA: [0, 40], tubo: [20, 80] };
+  for (const k in lim) { const n = num(sc[k]); if (n != null && n >= lim[k][0] && n <= lim[k][1]) out.scafo[k] = Math.round(n); }
+  const pe = num(sc.pescaggio); if (pe != null && pe > 20 && pe < 600) out.pescaggio = Math.round(pe);
+  const pd = num(sc.pozzettoDa), pa = num(sc.pozzettoA); if (pd != null && pa != null && pd >= 0 && pa <= 1 && pa > pd) out.pozzetto = { da: pd, a: pa };
+  for (const e of Array.isArray(r.interni) ? r.interni : []) { if (!e || !ARREDO[e.tipo]) continue; const x = num(e.x); if (x == null) continue; out.el.push({ k: e.tipo, n: typeof e.nome === 'string' && e.nome.trim() ? e.nome.trim().slice(0, 50) : ARREDO[e.tipo].n, x, y: num(e.y) || 0, z: num(e.z) || 0, w: num(e.w), d: num(e.d), h: num(e.h) }); }
+  out.dv = (Array.isArray(r.daVerificare) ? r.daVerificare : []).filter(x => typeof x === 'string' && x.trim()).slice(0, 12);
+  const n = Object.keys(out.scheda).length + Object.keys(out.scafo).length + out.el.length;
+  return n ? out : null;
+}
+async function docReadBoat(file) {
+  if (!caps.sample || !B() || guard()) { if (!caps.sample) toast('L’AI non è disponibile qui'); return; }
+  const pdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+  if (!pdf && !/^image\//.test(file.type)) { toast('Serve una foto o un PDF'); return; }
+  if (file.size > 15e6) { toast('File troppo grande: massimo 15 MB'); return; }
+  let blob;
+  if (pdf) blob = new Blob([await file.arrayBuffer()], { type: 'application/pdf' });
+  else { const u = URL.createObjectURL(file); try { const img = await loadImg(u), k = Math.min(1, 2400 / Math.max(img.naturalWidth, img.naturalHeight)), c = document.createElement('canvas'); c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); blob = await new Promise(res => c.toBlob(res, 'image/jpeg', .85)); } catch (e) { toast('Non riesco ad aprire il file'); return; } finally { URL.revokeObjectURL(u); } }
+  const id = B().id, ctl = new AbortController(); S.doc = { state: 'busy', ctl }; S.sel = null; S.tab = 'scheda'; renderPanel(true);
+  let r;
+  try { r = docShapeBoat(await caps.sample.json(DOC_PROMPT, { images: [blob], signal: ctl.signal })); }
+  catch (e) { if (!B() || B().id !== id) return; S.doc = e && e.code === 'cancelled' ? null : { state: 'err', msg: e && e.code === 'rate_limited' ? 'L’AI ha raggiunto il limite di oggi: riprova più tardi.' : 'Non sono riuscito a leggere il documento. Riprova o prova con una foto più nitida.' }; renderPanel(true); return; }
+  if (!B() || B().id !== id) return;
+  if (!r) { S.doc = { state: 'err', msg: 'Nel documento non ho trovato misure o dati della barca.' }; renderPanel(true); return; }
+  const before = snapB(), b = B();
+  if (r.tipo && r.tipo !== b.scafo.tipo) { const keep = { colori: b.scafo.colori }; b.scafo = Object.assign(defaultScafo(r.tipo), keep); }
+  Object.assign(b.scafo, r.scafo);
+  if (!r.scafo.L && r.scheda.loa) b.scafo.L = Math.round(r.scheda.loa * .96);
+  if (!r.scafo.B && r.scheda.bmax) b.scafo.B = b.scafo.tipo === 'gommone' ? Math.round(Math.max(100, r.scheda.bmax - 1.56 * b.scafo.tubo)) : Math.round(r.scheda.bmax);
+  if (r.pozzetto) b.scafo.pozzetto = r.pozzetto;
+  if (r.pescaggio && b.scafo.tipo === 'vela') b.scafo.chiglia.p = Math.max(20, r.pescaggio - b.scafo.T);
+  Object.assign(b.scheda, r.scheda);
+  if (r.nome && /^Barca( nuova| da documento)?$/.test(b.nome)) b.nome = r.nome;
+  for (const e of r.el) { const a = ARREDO[e.k]; b.el.push(makeEl('arredo', e.k, { n: e.n, x: Math.round(e.x), y: Math.round(e.y), z: Math.round(e.z), w: e.w > 0 ? Math.round(e.w) : a.w, d: e.d > 0 ? Math.round(e.d) : a.d, h: e.h > 0 ? Math.round(e.h) : a.h })); }
+  b.scafo = normalizeBoat(b).scafo; MODEL = null;
+  S.doc = { state: 'preview', before, nDati: Object.keys(r.scheda).length + Object.keys(r.scafo).length, nEl: r.el.length, dv: r.dv };
+  T3.framed = false; changed(); fitAll(); renderPanel(true);
+}
+function docBanner() {
+  const d = S.doc; if (!d) return '';
+  if (d.state === 'busy') return `<div class="ai busy"><span>Leggo il documento con l’AI</span><button class="btn sm" data-act="docStop">Annulla</button></div>`;
+  if (d.state === 'err') return `<div class="banner warn"><p>${esc(d.msg)}</p><div class="row-btns"><button class="btn sm" data-act="docOk">Chiudi</button></div></div>`;
+  return `<div class="banner"><p><b>Ecco cosa ho letto:</b> ${d.nDati} misure e dati${d.nEl ? ` e ${d.nEl} elementi degli interni` : ''}. Controlla la barca nelle viste e qui sotto.</p>${d.dv.length ? `<p class="note">Da verificare: ${d.dv.map(esc).join(' · ')}</p>` : ''}<div class="row-btns"><button class="btn sm primary" data-act="docOk">Usa</button><button class="btn sm" data-act="docUndo">Annulla</button></div></div>`;
+}
+async function newBoatFromDoc(file) {
+  const b = emptyBoat('Barca da documento', 'planante'); b.aggiornato = new Date().toISOString();
+  try { await Store.saveBoat(b); } catch (e) { toast('Non riesco a creare la barca'); return; }
+  openBoat(b.id);
+  for (let i = 0; i < 100 && !(B() && B().id === b.id); i++) await new Promise(r => setTimeout(r, 100));
+  if (B() && B().id === b.id) docReadBoat(file);
+}
+$('#fileDoc').addEventListener('change', e => { const f = e.target.files && e.target.files[0]; if (!f) return; if (S.docNew) { S.docNew = false; newBoatFromDoc(f); } else docReadBoat(f); });
 
 /* ================= preventivo: PDF e testo ================= */
 function quoteText() {
@@ -2035,6 +2109,11 @@ document.getElementById('app').addEventListener('click', async e => {
     case 'openBoat': openBoat(bt.dataset.id); break;
     case 'newBoat': newBoatModal(); break;
     case 'nbOk': newBoatOk(); break;
+    case 'nbDoc': closeModal(); S.docNew = true; $('#fileDoc').value = ''; $('#fileDoc').click(); break;
+    case 'docLoad': if (guard()) break; S.docNew = false; $('#fileDoc').value = ''; $('#fileDoc').click(); break;
+    case 'docStop': if (S.doc && S.doc.ctl) S.doc.ctl.abort(); S.doc = null; renderPanel(true); break;
+    case 'docOk': if (S.doc && S.doc.state === 'preview' && S.doc.dv.length) { const b = B(); b.scheda.note = ((b.scheda.note || '') + (b.scheda.note ? '\n' : '') + 'Da verificare (letto dall’AI): ' + S.doc.dv.join('; ')).slice(0, 4000); changed(); } S.doc = null; renderPanel(true); break;
+    case 'docUndo': if (S.doc && S.doc.before) { const keep = { rev: B().rev, aggiornato: B().aggiornato }; S.boat = Object.assign(normalizeBoat(JSON.parse(S.doc.before)), keep); MODEL = null; S.doc = null; S.sel = null; T3.framed = false; changed(); fitAll(); renderPanel(true); toast('Tutto come prima'); } break;
     case 'importBoat': if (!guard()) { $('#fileJson').value = ''; $('#fileJson').click(); } break;
     case 'saveSettings': try { await Store.putSettings(S.impostazioni); toast('Dati salvati'); } catch (er) { toast('Salvataggio non riuscito'); } break;
     case 'modalClose': if (e.target === bt || bt.tagName === 'BUTTON') closeModal(); break;
