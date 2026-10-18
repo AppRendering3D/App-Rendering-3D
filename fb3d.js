@@ -204,6 +204,8 @@
     'auth/invalid-login-credentials': 'Email o password sbagliate.', 'auth/email-already-in-use': 'Esiste già un account con questa email: accedi.',
     'auth/weak-password': 'La password deve avere almeno 6 caratteri.', 'auth/invalid-email': 'Email non valida.', 'auth/missing-password': 'Scrivi la password.',
     'auth/network-request-failed': 'Nessuna connessione. Riprova quando hai campo.', 'auth/too-many-requests': 'Troppi tentativi: riprova tra qualche minuto.',
+    'auth/configuration-not-found': 'In Firebase l’accesso con email non è ancora attivo (Authentication › Metodo di accesso › Email/password).',
+    'auth/operation-not-allowed': 'In Firebase l’accesso con email non è ancora attivo (Authentication › Metodo di accesso › Email/password).',
     'auth/unauthorized-domain': 'Questo indirizzo non è ancora autorizzato in Firebase (Authentication › Impostazioni › Domini autorizzati).'
   };
   function authErr(e) { return AUTH_MSG[e && e.code] || ('Non è andata: ' + ((e && (e.code || e.message)) || 'errore')); }
