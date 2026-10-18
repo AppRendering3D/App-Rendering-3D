@@ -163,6 +163,13 @@ button{touch-action:manipulation}
 .stack{display:flex;flex-direction:column;gap:8px}
 .ai{border-radius:10px;padding:10px 12px;font-size:13.5px;display:flex;gap:10px;align-items:center;justify-content:space-between;background:var(--board);border:1px solid var(--rule)}
 .ai.busy span::after{content:"";display:inline-block;width:8px;height:8px;margin-left:8px;border-radius:50%;background:var(--accent);animation:pulse 1s infinite}
+.voce{position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom, 0px));transform:translateX(-50%);z-index:45;width:min(calc(100% - 24px),460px);background:var(--sheet);border:1px solid var(--accent);border-radius:16px;box-shadow:var(--shadow);padding:14px;display:flex;flex-direction:column;gap:10px}
+.voce .said{font-size:16px;font-weight:600;min-height:22px}
+.voce .said.wait{color:var(--ink-3);font-weight:500}
+.voce ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px;font-size:14px}
+.voce textarea{width:100%;min-height:60px;border:1px solid var(--rule);border-radius:9px;background:var(--board);color:var(--ink);font:inherit;font-size:16px;padding:8px 10px;resize:vertical}
+.voce .live::before{content:"";display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--bad);margin-right:8px;animation:pulse 1s infinite}
+.voce .note.bad{color:var(--bad)}
 .banner{border:1px solid var(--rule);background:var(--board);border-radius:12px;padding:12px 13px;display:flex;flex-direction:column;gap:10px}
 .banner p{margin:0;font-size:13.5px}
 .banner.warn{border-color:var(--warn);background:var(--warn-soft)}
@@ -331,6 +338,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
         </span>
       </div>
       <div class="tools tools-r" id="toolsR">
+        <button class="tool icon" id="btnVoce" data-act="voce" aria-label="Comando a voce" title="Comando a voce" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
         <button class="tool icon" data-act="zoomIn" aria-label="Ingrandisci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
         <button class="tool icon" data-act="zoomOut" aria-label="Rimpicciolisci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
         <button class="tool icon" data-act="fit" aria-label="Mostra tutta la barca"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
@@ -352,6 +360,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
   <div id="modal"></div>
   <div class="overlay" id="rectify" hidden></div>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <div id="voce" class="voce" hidden></div>
   <input type="file" id="fileImg" accept="image/*" hidden>
   <input type="file" id="fileDoc" accept="image/*,application/pdf,.pdf" hidden>
   <input type="file" id="fileJson" accept=".json,application/json" hidden>
@@ -619,7 +628,7 @@ const Store = {
   async init() {
     const [db, user, dl] = await Promise.all([useCap('db'), useCap('user'), useCap('downloads')]);
     caps.db = db; caps.user = user; caps.dl = dl;
-    useCap('sample').then(x => { caps.sample = x; if (B()) renderPanel(); });
+    useCap('sample').then(x => { caps.sample = x; $('#btnVoce').hidden = !x; if (B()) renderPanel(); });
     S.mode = db ? 'db' : 'local';
     if (user) { try { const c = await user.can('data.write'); if (c === false) S.readOnly = true; } catch (e) {} }
   },
@@ -1692,7 +1701,7 @@ archive.addEventListener('input', e => { if (e.target.id === 'q') { S.query = e.
 
 function openBoat(id) {
   if (S.unsub) { S.unsub(); S.unsub = null; }
-  if (S.doc && S.doc.ctl) S.doc.ctl.abort(); S.doc = null;
+  if (S.doc && S.doc.ctl) S.doc.ctl.abort(); S.doc = null; if (S.voce) voceClose();
   S.boat = null; S.sel = null; S.trace = null; S.draw = null; S.metro = null; S.remote = null; S.dirty = false; S.myRevs.clear(); MODEL = null;
   S.vps = { alto: null, fianco: null, img: null }; T3.framed = false;
   S.unsub = Store.watchBoat(id, (data) => onBoatSnap(id, data));
@@ -1708,7 +1717,7 @@ function onBoatSnap(id, data) {
   S.remote = data; renderPanel(true);
 }
 function applyRemote(data) { const sel = S.sel; S.boat = normalizeBoat(data, S.boat.id); S.remote = null; if (sel && !selected()) S.sel = null; resetHistory(); T3.dirty = true; requestDraw(); render3D(); renderPanel(true); $('#title').textContent = B().nome; }
-function toArchive() { if (S.dirty) saveNow(); if (S.unsub) { S.unsub(); S.unsub = null; } S.boat = null; S.trace = null; S.draw = null; S.metro = null; renderHint(); showScreen('archive'); renderArchive(); setStatus(S.readOnly ? 'ro' : S.mode === 'local' ? 'local' : 'saved'); }
+function toArchive() { if (S.voce) voceClose(); if (S.dirty) saveNow(); if (S.unsub) { S.unsub(); S.unsub = null; } S.boat = null; S.trace = null; S.draw = null; S.metro = null; renderHint(); showScreen('archive'); renderArchive(); setStatus(S.readOnly ? 'ro' : S.mode === 'local' ? 'local' : 'saved'); }
 function fitAll() { const v0 = S.view; for (const v of ['alto', 'fianco']) { S.view = v; fitView(); } S.view = v0; if (S.view !== '3d') fitView(); }
 
 /* ================= viste ================= */
@@ -2064,6 +2073,99 @@ async function newBoatFromDoc(file) {
 }
 $('#fileDoc').addEventListener('change', e => { const f = e.target.files && e.target.files[0]; if (!f) return; if (S.docNew) { S.docNew = false; newBoatFromDoc(f); } else docReadBoat(f); });
 
+
+/* ================= comando a voce (AI) ================= */
+/* Parli («metti una presa USB a dritta vicino alla consolle»), l'AI propone, tu confermi. Se il telefono non ascolta, si scrive. */
+const voceEl = $('#voce'), SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let REC = null;
+function voceOpen() {
+  if (!caps.sample) { toast('L’AI non è disponibile qui'); return; }
+  if (!B()) { toast('Apri prima una barca'); return; }
+  if (guard()) return;
+  S.voce = { state: SR ? 'ascolto' : 'scrivi', testo: '' }; voceRender(); if (SR) voceListen();
+}
+function voceClose() { if (REC) { try { REC.abort(); } catch (e) {} REC = null; } if (S.voce && S.voce.ctl) S.voce.ctl.abort(); S.voce = null; voceEl.hidden = true; voceEl.innerHTML = ''; }
+function voceListen() {
+  const v = S.voce; if (!v || !SR) return;
+  try {
+    REC = new SR(); REC.lang = 'it-IT'; REC.interimResults = true; REC.continuous = false;
+    REC.onresult = e => { let t = ''; for (const r of e.results) t += r[0].transcript; v.testo = t; const el = voceEl.querySelector('.said'); if (el) { el.textContent = t; el.classList.remove('wait'); } };
+    REC.onerror = e => { REC = null; if (!S.voce) return; S.voce.state = 'scrivi'; if (e.error === 'not-allowed' || e.error === 'service-not-allowed') toast('Il microfono non è permesso: scrivi il comando'); voceRender(); };
+    REC.onend = () => { REC = null; if (S.voce && S.voce.state === 'ascolto') { if (S.voce.testo.trim()) voceAsk(S.voce.testo); else { S.voce.state = 'scrivi'; voceRender(); } } };
+    REC.start();
+  } catch (e) { v.state = 'scrivi'; voceRender(); }
+}
+function voceRender() {
+  const v = S.voce; if (!v) return; voceEl.hidden = false;
+  const x = `<button class="btn sm" data-act="voceNo">Annulla</button>`;
+  if (v.state === 'ascolto') voceEl.innerHTML = `<p class="note live">Ti ascolto…</p><div class="said${v.testo ? '' : ' wait'}">${esc(v.testo) || 'Per esempio: «metti una presa USB a dritta vicino alla consolle»'}</div><div class="row-btns"><button class="btn sm primary" data-act="voceStop">Ho finito</button>${x}</div>`;
+  else if (v.state === 'scrivi') voceEl.innerHTML = `<p class="note">Scrivi cosa vuoi fare${SR ? ', oppure tocca il microfono e riprova' : ''}:</p><textarea id="voceTxt" placeholder="es. aggiungi la pompa di sentina a poppa">${esc(v.testo)}</textarea><div class="row-btns"><button class="btn sm primary" data-act="voceGo">Fatto</button>${SR ? `<button class="btn sm" data-act="voceMic">Riprova a voce</button>` : ''}${x}</div>`;
+  else if (v.state === 'busy') voceEl.innerHTML = `<div class="said">«${esc(v.testo)}»</div><div class="ai busy"><span>Ci penso</span></div><div class="row-btns">${x}</div>`;
+  else if (v.state === 'err') voceEl.innerHTML = `<div class="said">«${esc(v.testo)}»</div><p class="note bad">${esc(v.msg)}</p><div class="row-btns"><button class="btn sm primary" data-act="voceAgain">Riprova</button>${x}</div>`;
+  else if (v.state === 'ok') voceEl.innerHTML = `<div class="said">«${esc(v.testo)}»</div><p class="note"><b>Ho capito così:</b></p><ul>${v.az.map(a => `<li>${esc(a.desc)}</li>`).join('')}</ul>${v.dubbio ? `<p class="note warn">${esc(v.dubbio)}</p>` : ''}<div class="row-btns"><button class="btn sm primary" data-act="voceOk">Conferma</button><button class="btn sm" data-act="voceAgain">Ridillo</button>${x}</div>`;
+}
+const VOCE_PROMPT = (testo, ctx) => `Sei dentro un'app che disegna una barca. La persona ha detto (trascrizione automatica, può avere errori): «${testo}».
+Coordinate in cm: x = distanza da poppa (lo specchio è 0, la prua è circa ${ctx.L}), y = distanza dall'asse della barca (positivo a dritta, negativo a sinistra), z = altezza sopra la linea di galleggiamento (negativo sotto).
+Barca: ${JSON.stringify(ctx)}
+Trasforma la richiesta in azioni. Rispondi solo con JSON: {"azioni": [ ... ], "dubbio": "frase breve se qualcosa non è chiaro, altrimenti vuota"}
+Azioni possibili:
+- {"azione":"punto","tipo": una tra ${PUNTI.map(p => p.k).join(', ')},"nome":"breve","x":cm,"y":cm,"z":cm}
+- {"azione":"arredo","tipo": una tra ${ARREDI.map(a => a.k).join(', ')},"nome":"breve","x": centro in cm,"y": centro in cm,"z": base in cm,"w": lunghezza lungo la barca,"d": larghezza,"h": altezza}
+- {"azione":"nota","testo":"nota da aggiungere alla scheda"}
+Se la persona dice «vicino a» un elemento, usa la sua posizione. Se la richiesta non c'entra con queste azioni, metti azioni vuote e spiega nel dubbio.`;
+async function voceAsk(testo) {
+  const v = S.voce; if (!v || !B()) return;
+  v.testo = String(testo || '').trim().slice(0, 500); if (!v.testo) { v.state = 'scrivi'; voceRender(); return; }
+  v.state = 'busy'; v.ctl = new AbortController(); voceRender();
+  const b = B(), m = model(), ctx = { nome: b.nome, tipo: b.scafo.tipo, L: Math.round(m.L), B: Math.round(b.scafo.B),
+    elementi: b.el.filter(e => e.t === 'arredo' || e.t === 'punto').slice(0, 80).map(e => ({ tipo: e.k, nome: e.n, x: Math.round(e.x), y: Math.round(e.y), z: Math.round(e.z) })) };
+  let r;
+  try { r = await caps.sample.json(VOCE_PROMPT(v.testo, ctx), { signal: v.ctl.signal }); }
+  catch (e) { if (!S.voce || (e && e.code === 'cancelled')) return; v.state = 'err'; v.msg = e && e.code === 'rate_limited' ? 'L’AI ha raggiunto il limite di oggi: riprova più tardi.' : 'Non sono riuscito a chiedere all’AI. Controlla la connessione e riprova.'; voceRender(); return; }
+  if (!S.voce) return;
+  v.az = voceActions(r && Array.isArray(r.azioni) ? r.azioni : [], m.L); v.dubbio = r && typeof r.dubbio === 'string' ? r.dubbio.trim().slice(0, 200) : '';
+  if (!v.az.length) { v.state = 'err'; v.msg = v.dubbio || 'Non ho capito cosa fare. Prova a dirlo in un altro modo.'; voceRender(); return; }
+  v.state = 'ok'; voceRender();
+}
+function voceActions(list, L) {
+  const out = [], lato = y => Math.abs(y) < 10 ? 'al centro' : y > 0 ? 'a dritta' : 'a sinistra';
+  for (const a of list.slice(0, 12)) {
+    if (!a || typeof a !== 'object') continue;
+    if (a.azione === 'nota' && typeof a.testo === 'string' && a.testo.trim()) { out.push({ k: 'nota', testo: a.testo.trim().slice(0, 500), desc: 'Nota nella scheda: «' + a.testo.trim().slice(0, 80) + '»' }); continue; }
+    const x = num(a.x); if (x == null) continue;
+    const y = num(a.y) || 0, z = num(a.z) || 0, pos = `a ${fmt(x)} cm da poppa, ${lato(y)}`;
+    if (a.azione === 'punto' && PUNTO[a.tipo]) { const p = PUNTO[a.tipo], n = typeof a.nome === 'string' && a.nome.trim() ? a.nome.trim().slice(0, 50) : p.n; out.push({ k: 'punto', tipo: p.k, n, x: clamp(x, 0, L), y, z, desc: `${n} ${pos}` }); }
+    else if (a.azione === 'arredo' && ARREDO[a.tipo]) {
+      const d0 = ARREDO[a.tipo], n = typeof a.nome === 'string' && a.nome.trim() ? a.nome.trim().slice(0, 50) : d0.n, w = num(a.w), d = num(a.d), h = num(a.h);
+      out.push({ k: 'arredo', tipo: d0.k, n, x: clamp(x, 0, L), y, z, w: w > 1 && w < 3000 ? w : d0.w, d: d > 1 && d < 3000 ? d : d0.d, h: h > 1 && h < 1000 ? h : d0.h, desc: `${n} (${fmt(w > 1 ? w : d0.w)} × ${fmt(d > 1 ? d : d0.d)}) ${pos}` });
+    }
+  }
+  return out;
+}
+function voceApply() {
+  const v = S.voce, b = B(); if (!v || !v.az || !b || guard()) return;
+  let last = null;
+  for (const a of v.az) {
+    if (a.k === 'nota') b.scheda.note = ((b.scheda.note || '') + (b.scheda.note ? '\n' : '') + a.testo).slice(0, 4000);
+    else if (a.k === 'punto') { const e = makeEl('punto', a.tipo, { n: a.n, x: Math.round(a.x), y: Math.round(a.y), z: Math.round(a.z) }); b.el.push(e); last = e; }
+    else if (a.k === 'arredo') { const e = makeEl('arredo', a.tipo, { n: a.n, x: Math.round(a.x), y: Math.round(a.y), z: Math.round(a.z), w: Math.round(a.w), d: Math.round(a.d), h: Math.round(a.h) }); b.el.push(e); last = e; }
+  }
+  const n = v.az.length; voceClose(); changed();
+  if (last) select(last.id); else renderPanel(true);
+  toast(n === 1 ? 'Fatto. Puoi annullare dalla freccia in alto' : n + ' modifiche fatte. Puoi annullare dalla freccia in alto');
+}
+voceEl.addEventListener('click', e => {
+  const b = e.target.closest('[data-act]'); if (!b || !S.voce) return; const v = S.voce;
+  switch (b.dataset.act) {
+    case 'voceNo': voceClose(); break;
+    case 'voceStop': if (REC) { try { REC.stop(); } catch (er) {} } else if (v.testo.trim()) voceAsk(v.testo); break;
+    case 'voceGo': voceAsk(($('#voceTxt') || {}).value || ''); break;
+    case 'voceMic': v.state = 'ascolto'; v.testo = ''; voceRender(); voceListen(); break;
+    case 'voceAgain': v.state = SR ? 'ascolto' : 'scrivi'; if (SR) v.testo = ''; voceRender(); if (SR) voceListen(); break;
+    case 'voceOk': voceApply(); break;
+  }
+});
+
 /* ================= preventivo: PDF e testo ================= */
 function quoteText() {
   const b = B(), Q = quote(), s = b.scheda;
@@ -2109,6 +2211,7 @@ document.getElementById('app').addEventListener('click', async e => {
     case 'openBoat': openBoat(bt.dataset.id); break;
     case 'newBoat': newBoatModal(); break;
     case 'nbOk': newBoatOk(); break;
+    case 'voce': if (S.voce) voceClose(); else voceOpen(); break;
     case 'nbDoc': closeModal(); S.docNew = true; $('#fileDoc').value = ''; $('#fileDoc').click(); break;
     case 'docLoad': if (guard()) break; S.docNew = false; $('#fileDoc').value = ''; $('#fileDoc').click(); break;
     case 'docStop': if (S.doc && S.doc.ctl) S.doc.ctl.abort(); S.doc = null; renderPanel(true); break;

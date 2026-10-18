@@ -291,6 +291,12 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .linkbtn{border:0;background:none;color:var(--accent);font:inherit;font-size:13.5px;font-weight:600;padding:4px 0;cursor:pointer;text-align:left}
 .lrow .flag:not(.w):not(.b){background:var(--accent-soft);color:var(--accent)}
 .lrow .flag.none{background:none;color:var(--ink-3)}
+.voce{position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom, 0px));transform:translateX(-50%);z-index:45;width:min(calc(100% - 24px),460px);background:var(--sheet);border:1px solid var(--accent);border-radius:16px;box-shadow:var(--shadow);padding:14px;display:flex;flex-direction:column;gap:10px}
+.voce .said{font-size:16px;font-weight:600;min-height:22px}
+.voce .said.wait{color:var(--ink-3);font-weight:500}
+.voce ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px;font-size:14px}
+.voce textarea{width:100%;min-height:60px;border:1px solid var(--rule);border-radius:9px;background:var(--board);color:var(--ink);font:inherit;font-size:16px;padding:8px 10px;resize:vertical}
+.voce .live::before{content:"";display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--bad);margin-right:8px;animation:pulse 1s infinite}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 @media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
 </style>
@@ -317,6 +323,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
       <canvas id="view3d" hidden aria-label="Vista 3D della casa"></canvas>
 
       <div class="tools tools-2d" id="tools2d">
+        <button class="tool icon voce-btn" data-act="voce" aria-label="Comando a voce" title="Comando a voce" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
         <button class="tool icon" data-act="zoomIn" aria-label="Ingrandisci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
         <button class="tool icon" data-act="zoomOut" aria-label="Rimpicciolisci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
         <button class="tool icon liv-btn" data-act="livelli" aria-pressed="false" aria-label="Livelli: cosa vedere" title="Livelli"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg></button>
@@ -324,6 +331,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
         <button class="tool icon" data-act="fit" aria-label="Mostra tutta la casa"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
       </div>
       <div class="tools tools-3d" id="tools3d" hidden>
+        <button class="tool icon voce-btn" data-act="voce" aria-label="Comando a voce" title="Comando a voce" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
         <button class="tool" data-act="walls" id="btnWalls" aria-pressed="false">Muri alti</button>
         <label class="tool" for="roomSel"><span class="sr">Entra in una stanza</span><select id="roomSel"><option value="">Entra in…</option></select></label>
         <button class="tool" data-act="exitInside" id="btnTop" hidden>Vista dall'alto</button>
@@ -357,6 +365,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
   <input type="file" id="fileImport" accept=".json,application/json" hidden>
   <div id="arch" hidden><div class="in" id="archIn"></div></div>
   <div id="fogli" class="overlay" hidden></div>
+  <div id="voce" class="voce" hidden></div>
 </div>
 
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
@@ -626,7 +635,7 @@ useCap('sample').then(async s => {
   if (s) { caps.sample = s; try { const lim = await s.limits(); caps.img = !!(lim && lim.images); } catch (e) { caps.img = false; } }
   refreshCaps();
 });
-function refreshCaps() { $('#btnShot').hidden = !caps.dl; renderPanel(); if (P()) updateEmpty(); }
+function refreshCaps() { $('#btnShot').hidden = !caps.dl; document.querySelectorAll('.voce-btn').forEach(b => { b.hidden = !caps.sample; }); renderPanel(); if (P()) updateEmpty(); }
 
 /* ================= sito proprio: archivio delle case su Firebase ================= */
 const SITE = !!window.__FB3D;
@@ -2266,6 +2275,7 @@ document.getElementById('app').addEventListener('click', e => {
     case 'zoomOut': { const { W, H } = stageSize(); zoomAt(1 / 1.35, W / 2, H / 2); break; }
     case 'fit': fitView(); break;
     case 'add': addItem(b.dataset.t, b.dataset.n); break;
+    case 'voce': if (S.voce) voceClose(); else voceOpen(); break;
     case 'fvOpen': openFogli(b.dataset.k); break;
     case 'addPhoto': pickPhoto({ mode: 'new' }); break;
     case 'photoPick': if (sel && sel.k === 'item') pickPhoto({ mode: 'item', id: sel.o.id }); break;
@@ -2993,6 +3003,117 @@ function docBanner() {
 }
 $('#fileDoc').addEventListener('change', e => { const f = e.target.files && e.target.files[0]; if (f) docRead(f); });
 
+
+/* ================= comando a voce (AI) ================= */
+/* Parli («aggiungi una presa a 110 cm sul muro della cucina»), l'AI propone, tu confermi. Se il telefono non ascolta, si scrive. */
+const voceEl = $('#voce'), SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let REC = null;
+function voceOpen() {
+  if (!caps.sample) { toast('L’AI non è disponibile qui'); return; }
+  if (S.metroOn) setMetro(false);
+  S.voce = { state: SR ? 'ascolto' : 'scrivi', testo: '' }; voceRender(); if (SR) voceListen();
+}
+function voceClose() { if (REC) { try { REC.abort(); } catch (e) {} REC = null; } if (S.voce && S.voce.ctl) S.voce.ctl.abort(); S.voce = null; voceEl.hidden = true; voceEl.innerHTML = ''; }
+function voceListen() {
+  const v = S.voce; if (!v || !SR) return;
+  try {
+    REC = new SR(); REC.lang = 'it-IT'; REC.interimResults = true; REC.continuous = false;
+    REC.onresult = e => { let t = ''; for (const r of e.results) t += r[0].transcript; v.testo = t; const el = voceEl.querySelector('.said'); if (el) { el.textContent = t; el.classList.remove('wait'); } };
+    REC.onerror = e => { REC = null; if (!S.voce) return; S.voce.state = 'scrivi'; if (e.error === 'not-allowed' || e.error === 'service-not-allowed') toast('Il microfono non è permesso: scrivi il comando'); voceRender(); };
+    REC.onend = () => { REC = null; if (S.voce && S.voce.state === 'ascolto') { if (S.voce.testo.trim()) voceAsk(S.voce.testo); else { S.voce.state = 'scrivi'; voceRender(); } } };
+    REC.start();
+  } catch (e) { v.state = 'scrivi'; voceRender(); }
+}
+function voceRender() {
+  const v = S.voce; if (!v) return; voceEl.hidden = false;
+  const x = `<button class="btn sm" data-act="voceNo">Annulla</button>`;
+  if (v.state === 'ascolto') voceEl.innerHTML = `<p class="note live">Ti ascolto…</p><div class="said${v.testo ? '' : ' wait'}">${esc(v.testo) || 'Per esempio: «aggiungi una presa a 110 cm sul muro della cucina verso il soggiorno»'}</div><div class="row-btns"><button class="btn sm primary" data-act="voceStop">Ho finito</button>${x}</div>`;
+  else if (v.state === 'scrivi') voceEl.innerHTML = `<p class="note">Scrivi cosa vuoi fare${SR ? ', oppure tocca il microfono e riprova' : ''}:</p><textarea id="voceTxt" placeholder="es. aggiungi una presa a 110 cm sul muro della cucina">${esc(v.testo)}</textarea><div class="row-btns"><button class="btn sm primary" data-act="voceGo">Fatto</button>${SR ? `<button class="btn sm" data-act="voceMic">Riprova a voce</button>` : ''}${x}</div>`;
+  else if (v.state === 'busy') voceEl.innerHTML = `<div class="said">«${esc(v.testo)}»</div><div class="ai busy"><span>Ci penso</span></div><div class="row-btns">${x}</div>`;
+  else if (v.state === 'err') voceEl.innerHTML = `<div class="said">«${esc(v.testo)}»</div><p class="note bad">${esc(v.msg)}</p><div class="row-btns"><button class="btn sm primary" data-act="voceAgain">Riprova</button>${x}</div>`;
+  else if (v.state === 'ok') voceEl.innerHTML = `<div class="said">«${esc(v.testo)}»</div><p class="note"><b>Ho capito così:</b></p><ul>${v.az.map(a => `<li>${esc(a.desc)}</li>`).join('')}</ul>${v.dubbio ? `<p class="note warn">${esc(v.dubbio)}</p>` : ''}<div class="row-btns"><button class="btn sm primary" data-act="voceOk">Conferma</button><button class="btn sm" data-act="voceAgain">Ridillo</button>${x}</div>`;
+}
+const VOCE_PROMPT = (testo, ctx) => `Sei dentro un'app che disegna la pianta di una casa. La persona ha detto (trascrizione automatica, può avere errori): «${testo}».
+Stato della casa in cm (x verso destra, y verso il basso nella pianta, ogni stanza è un rettangolo netto; pareti: n = in alto, s = in basso, o = a sinistra, e = a destra nella pianta):
+${JSON.stringify(ctx)}
+Trasforma la richiesta in azioni. Rispondi solo con JSON: {"azioni": [ ... ], "dubbio": "frase breve se qualcosa non è chiaro, altrimenti vuota"}
+Azioni possibili:
+- {"azione":"punto","tipo": una tra ${Object.keys(SUBS).map(k => 'elettrico:' + k).concat(Object.keys(IDRO).map(k => 'idraulico:' + k)).join(', ')},"stanza":"id","parete":"n|s|o|e","daSinistra": cm dal bordo sinistro della parete per chi la guarda dall'interno della stanza (metà parete se non detto),"altezza": cm da terra,"nome":"breve"}
+- {"azione":"mobile","tipo": una tra ${[...new Set(CATALOG.flatMap(c => c.items).filter(i => !ELEC.has(i.t) && !OPENINGS.has(i.t) && i.t !== 'muro').map(i => i.t))].join(', ')},"nome":"breve","stanza":"id","parete":"n|s|o|e oppure vuoto per il centro","w": cm,"d": cm,"h": cm}
+- {"azione":"stanza","stanza":"id","nome": nuovo nome o vuoto,"w": cm o null,"h": cm o null}
+- {"azione":"idea","testo":"nota da ricordare"}
+Il muro «verso» un'altra stanza è la parete della prima stanza che guarda la seconda. Se la richiesta non c'entra con queste azioni, metti azioni vuote e spiega nel dubbio.`;
+async function voceAsk(testo) {
+  const v = S.voce; if (!v) return;
+  v.testo = String(testo || '').trim().slice(0, 500); if (!v.testo) { v.state = 'scrivi'; voceRender(); return; }
+  v.state = 'busy'; v.ctl = new AbortController(); voceRender();
+  const p = P(), ctx = { stanze: p.stanze.map(r => ({ id: r.id, nome: r.nome, x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.w), h: Math.round(r.h) })), altezza: p.altezza, stanzaScelta: S.sel && S.sel.k === 'room' ? S.sel.id : null };
+  let r;
+  try { r = await caps.sample.json(VOCE_PROMPT(v.testo, ctx), { signal: v.ctl.signal }); }
+  catch (e) { if (!S.voce) return; if (e && e.code === 'cancelled') return; v.state = 'err'; v.msg = e && e.code === 'rate_limited' ? 'L’AI ha raggiunto il limite di oggi: riprova più tardi.' : 'Non sono riuscito a chiedere all’AI. Controlla la connessione e riprova.'; voceRender(); return; }
+  if (!S.voce) return;
+  v.az = voceActions(r && Array.isArray(r.azioni) ? r.azioni : []); v.dubbio = r && typeof r.dubbio === 'string' ? r.dubbio.trim().slice(0, 200) : '';
+  if (!v.az.length) { v.state = 'err'; v.msg = v.dubbio || 'Non ho capito cosa fare. Prova a dirlo in un altro modo.'; voceRender(); return; }
+  v.state = 'ok'; voceRender();
+}
+function voceActions(list) {
+  const out = [];
+  for (const a of list.slice(0, 12)) {
+    if (!a || typeof a !== 'object') continue;
+    const r = a.stanza ? roomById(String(a.stanza)) : null;
+    if (a.azione === 'idea' && typeof a.testo === 'string' && a.testo.trim()) out.push({ k: 'idea', testo: a.testo.trim().slice(0, 500), desc: 'Nota nelle Idee: «' + a.testo.trim().slice(0, 80) + '»' });
+    else if (a.azione === 'punto' && r && DIRS[a.parete]) {
+      const [t, sub] = String(a.tipo || 'elettrico:presa').split(':'), kind = (t === 'idraulico' ? IDRO : SUBS)[sub];
+      if (!kind || (t !== 'elettrico' && t !== 'idraulico')) continue;
+      const F = wallFace('r:' + r.id + ':' + a.parete), z = clamp(num(a.altezza) ?? 40, 0, 400), f = clamp(num(a.daSinistra) ?? F.L / 2, 0, F.L);
+      out.push({ k: 'punto', t, sub, key: F.key, f, z, n: typeof a.nome === 'string' && a.nome.trim() ? a.nome.trim().slice(0, 40) : kind[0], desc: `${kind[0]} a ${fmt(z)} cm da terra, ${r.nome}, ${F.nome.toLowerCase()} (${fmt(f)} cm dal bordo sinistro)` });
+    } else if (a.azione === 'mobile' && r) {
+      const def = CATALOG.flatMap(c => c.items).find(i => i.t === a.tipo && !ELEC.has(i.t) && !OPENINGS.has(i.t)); if (!def) continue;
+      const w = num(a.w), d = num(a.d), h = num(a.h);
+      out.push({ k: 'mobile', def, room: r.id, par: DIRS[a.parete] ? a.parete : '', n: typeof a.nome === 'string' && a.nome.trim() ? a.nome.trim().slice(0, 40) : def.n, w: w > 5 && w < 1500 ? w : def.w, d: d > 1 && d < 1500 ? d : def.d, h: h > 1 && h < 400 ? h : def.h,
+        desc: `${a.nome || def.n} (${fmt(w > 5 ? w : def.w)} × ${fmt(d > 1 ? d : def.d)}) in ${r.nome}${DIRS[a.parete] ? ', contro la parete ' + DIRS[a.parete] : ''}` });
+    } else if (a.azione === 'stanza' && r) {
+      const w = num(a.w), h = num(a.h), nome = typeof a.nome === 'string' ? a.nome.trim().slice(0, 40) : '';
+      if (!nome && !(w > 30) && !(h > 30)) continue;
+      out.push({ k: 'stanza', id: r.id, nome, w: w > 30 && w < 5000 ? w : null, h: h > 30 && h < 5000 ? h : null, desc: `${r.nome}: ${[nome && 'si chiamerà ' + nome, w > 30 && 'larga ' + fmt(w) + ' cm', h > 30 && 'profonda ' + fmt(h) + ' cm'].filter(Boolean).join(', ')}` });
+    }
+  }
+  return out;
+}
+function voceApply() {
+  const v = S.voce; if (!v || !v.az) return;
+  const p = P(); let last = null;
+  for (const a of v.az) {
+    if (a.k === 'idea') addIdea(a.testo);
+    else if (a.k === 'punto') {
+      const F = wallFace(a.key); if (!F) continue;
+      const def = CATALOG.flatMap(c => c.items).find(i => i.t === a.t && i.sub === a.sub) || catDef(a.t);
+      const [x, y] = F.pt(a.f), it = makeItem(def, x, y, F.rot, { n: a.n }); it.z = Math.round(a.z); snapFace(it);
+      p.livelli[a.t === 'idraulico' ? 'id' : 'el'] = true; p.vedElettrico = p.livelli.el; p.arredi.push(it); last = it;
+    } else if (a.k === 'mobile') {
+      const r = roomById(a.room); if (!r) continue;
+      const it = makeItem(a.def, r.x + r.w / 2, r.y + r.h / 2, 0, { n: a.n, w: Math.round(a.w), d: Math.round(a.d), h: Math.round(a.h) });
+      if (a.par === 'n') { it.rot = 0; it.y = r.y + it.d / 2; } else if (a.par === 's') { it.rot = 180; it.y = r.y + r.h - it.d / 2; }
+      else if (a.par === 'o') { it.rot = 270; it.x = r.x + it.d / 2; } else if (a.par === 'e') { it.rot = 90; it.x = r.x + r.w - it.d / 2; }
+      if (!vis(it)) p.livelli.arredi = true; snapItem(it, 4); p.arredi.push(it); last = it;
+    } else if (a.k === 'stanza') { const r = roomById(a.id); if (!r) continue; if (a.nome) r.nome = a.nome; if (a.w) r.w = Math.round(a.w); if (a.h) r.h = Math.round(a.h); }
+  }
+  const n = v.az.length; voceClose(); changed();
+  if (last) { select('item', last.id); if (S.view === 'plan') centerOn(last.x, last.y); } else renderPanel(true);
+  toast(n === 1 ? 'Fatto. Puoi annullare dalla freccia in alto' : n + ' modifiche fatte. Puoi annullare dalla freccia in alto');
+}
+voceEl.addEventListener('click', e => {
+  const b = e.target.closest('[data-act]'); if (!b || !S.voce) return; const v = S.voce;
+  switch (b.dataset.act) {
+    case 'voceNo': voceClose(); break;
+    case 'voceStop': if (REC) { try { REC.stop(); } catch (er) {} } else if (v.testo.trim()) voceAsk(v.testo); break;
+    case 'voceGo': voceAsk(($('#voceTxt') || {}).value || ''); break;
+    case 'voceMic': v.state = 'ascolto'; v.testo = ''; voceRender(); voceListen(); break;
+    case 'voceAgain': v.state = SR ? 'ascolto' : 'scrivi'; if (SR) v.testo = ''; voceRender(); if (SR) voceListen(); break;
+    case 'voceOk': voceApply(); break;
+  }
+});
+
 /* esporta / importa */
 async function exportProject() {
   if (!caps.dl) return;
@@ -3035,6 +3156,7 @@ async function importObject(obj) {
 /* tastiera (computer) */
 document.addEventListener('keydown', e => {
   if (e.target.closest && e.target.closest('input,select,textarea')) return;
+  if (S.voce && e.key === 'Escape') { voceClose(); return; }
   if (S.fv) { if (e.key === 'Escape') { if (S.fv.rc) { S.fv.rc = null; renderFogli(); } else closeFogli(); } return; }
   const mod = e.ctrlKey || e.metaKey;
   if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); travel(e.shiftKey ? 1 : -1); return; }
@@ -3140,6 +3262,7 @@ function resetForOpen() {
   if (S.metroOn) setMetro(false);
   S.sel = null; S.calib = null; S.armed = null; S.conflict = null; S.pasteOpen = false;
   if (S.doc && S.doc.ctl) S.doc.ctl.abort(); S.doc = null;
+  if (S.voce) voceClose();
   if (S.fv) { S.fv = null; fvEl.hidden = true; fvEl.innerHTML = ''; }
   S.pending.clear(); S.removed.clear(); S.gone.clear();
   S.dirty = false; S.retried = false; S.readOnly = false; S.editSeq++;
