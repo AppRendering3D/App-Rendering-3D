@@ -205,7 +205,7 @@
       // scale (gradini affiancati) e vetri (linee più chiare)
       for (let k = 0; k < pc.length; k++) {
         const P = pc[k], hz = P.o === 'h', cc = Math.round(P.cc);
-        let same = [0, 0], tot = 0, dark = 0, nd = 0, cross = 0;
+        let same = [0, 0], tot = 0, dark = 0, nd = 0, cross = [0, 0];
         for (let a = P.a0 + 2; a <= P.a1 - 2; a += 2) {
           tot++;
           for (let s = 0; s < 2; s++) {
@@ -220,12 +220,12 @@
               if (st === 3) break;
               prev = ink[i]; p += sg;
             }
-            cross += far;
+            cross[s] += far;
             if (mn < 255) { dark += mn; nd++; }
             if (other) { const o = pc[other - 1]; if (o.o === P.o && Math.max(o.t, P.t) < 1.7 * Math.min(o.t, P.t)) same[s]++; }
           }
         }
-        P.ladder = tot > 0 && (Math.max(same[0], same[1]) > tot * .5 || cross >= tot * 3.2);
+        P.ladder = tot > 0 && (Math.max(same[0], same[1]) > tot * .5 || Math.min(cross[0], cross[1]) >= tot * 1.6); // gradini: righe fitte da tutte e due le parti
         P.bd = nd ? dark / nd : 0;
       }
       return { PL, pc };
@@ -335,6 +335,21 @@
       }
     }
     for (const s of muri) if (s.o === 'o') merged.push(s);
+    // via i pezzetti che non sono muri: righe sottili corte (croce dell'ascensore, gradini, legenda),
+    // pezzi già dentro un muro più spesso e pezzetti corti staccati da tutto
+    {
+      const len = s => Math.hypot(s.b[0] - s.a[0], s.b[1] - s.a[1]);
+      const inside = (p, w, pad) => { // punto dentro il rettangolo del muro w
+        const dx = w.b[0] - w.a[0], dy = w.b[1] - w.a[1], L = Math.hypot(dx, dy) || 1, u = ((p[0] - w.a[0]) * dx + (p[1] - w.a[1]) * dy) / L, v = ((p[0] - w.a[0]) * dy - (p[1] - w.a[1]) * dx) / L;
+        return u >= -w.t / 2 - pad && u <= L + w.t / 2 + pad && Math.abs(v) <= w.t / 2 + pad;
+      };
+      let keep = merged.filter(s => !(s.t < Tw * .22 && len(s) < Tw * 4));
+      keep = keep.filter(s => !keep.some(w => w !== s && w.t > s.t * 1.3 && [s.a, s.b, [(s.a[0] + s.b[0]) / 2, (s.a[1] + s.b[1]) / 2]].every(p => inside(p, w, Math.max(3, s.t * .4)))));
+      keep = keep.filter(s => !(len(s) < Tw * 1.5 && s.t < Tw * .45) || keep.some(w => w !== s && w.t >= Tw * .3 && (inside(s.a, w, s.t + 3) || inside(s.b, w, s.t + 3))));
+      // un pezzo corto che non tocca nessun altro muro (es. il segno nella legenda)
+      keep = keep.filter(s => len(s) >= Tw * 3 || keep.some(w => w !== s && (inside(s.a, w, Tw * .5) || inside(s.b, w, Tw * .5) || inside(w.a, s, Tw * .5) || inside(w.b, s, Tw * .5))));
+      merged.length = 0; merged.push(...keep);
+    }
 
     // finestre: un vetro fra due pezzi di muro allineati diventa muro con un'apertura;
     // un vetro sottile staccato dai muri è un parapetto (balcone), il resto si ignora (scale, ascensore)
