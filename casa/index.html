@@ -201,6 +201,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .ib.dash{stroke-dasharray:5 4;fill-opacity:.35}
 .ib.rug{stroke-dasharray:3 3;fill-opacity:.4}
 .ib.mw{fill:var(--wall);fill-opacity:1;stroke:var(--wall)}
+.item.st-dem .ib.mw{fill:#EFC92B;stroke:#B89A12}.item.st-cos .ib.mw{fill:#E2534C;stroke:#A9352F}.item.off{opacity:.3}
 .el{fill:var(--elec);stroke:var(--sheet);stroke-width:1;vector-effect:non-scaling-stroke}
 .el.q{fill:var(--sheet);stroke:var(--elec);stroke-width:2}
 .item.sel .el{stroke:var(--accent);stroke-width:3}
@@ -337,6 +338,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
       <div class="tools tools-3d" id="tools3d" hidden>
         <button class="tool icon voce-btn" data-act="voce" aria-label="Comando a voce" title="Comando a voce" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
         <button class="tool" data-act="walls" id="btnWalls" aria-pressed="false">Muri alti</button>
+        <button class="tool" data-act="fase" id="btnFase" aria-pressed="false" hidden>Progetto finito</button>
         <label class="tool" for="roomSel"><span class="sr">Entra in una stanza</span><select id="roomSel"><option value="">Entra in…</option></select></label>
         <button class="tool" data-act="exitInside" id="btnTop" hidden>Vista dall'alto</button>
         <button class="tool liv-btn" data-act="livelli" aria-pressed="false">Livelli</button>
@@ -349,8 +351,8 @@ input[type=range]{width:100%;accent-color:var(--accent)}
       <div class="hint" id="hint" hidden></div>
       <div class="empty" id="empty" hidden>
         <div>
-          <p><b>La pianta è vuota.</b> Parti dalla planimetria del geometra oppure inserisci le stanze con le misure.</p>
-          <div class="row-btns"><button class="btn primary" data-act="docLoad" id="emptyDoc">Crea dal documento</button><button class="btn" data-act="planLoad">Carica planimetria</button><button class="btn" data-act="addRoom">Aggiungi stanza</button></div>
+          <p><b>La pianta è vuota.</b> Carica la planimetria (foto, screenshot o PDF): l’app ricalca muri, porte, finestre e stanze e fa il 3D. Oppure inserisci le stanze a mano.</p>
+          <div class="row-btns"><button class="btn primary" data-act="docLoad" id="emptyDoc">Carica la planimetria</button><button class="btn" data-act="addRoom">Aggiungi stanza</button></div>
         </div>
       </div>
       <div class="glfail" id="glfail" hidden>La vista 3D non si è avviata su questo dispositivo. La pianta funziona lo stesso.</div>
@@ -379,6 +381,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 <script>window.FB3D_APP = 'casa'; window.FB3D_HOME = '../';</script>
 <script src="../fb3d.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+<script src="ricalco.js"></script>
 <script>
 (function () {
 'use strict';
@@ -608,12 +611,14 @@ function normalize(p) {
       c: /^#[0-9a-f]{6}$/i.test(i.c || '') ? i.c : '#C8C2B8', arm: num(i.arm) || 0, foto: typeof i.foto === 'string' ? i.foto : null, fotoFronte: i.fotoFronte !== false, fotoStira: !!i.fotoStira, specchio: !!i.specchio });
     const it = out.arredi[out.arredi.length - 1];
     if (/^#[0-9a-f]{6}$/i.test(i.cs || '')) it.cs = i.cs;
+    if (it.t === 'muro' && (i.st === 'dem' || i.st === 'cos')) it.st = i.st;
     if (it.t === 'elettrico') { it.sub = SUBS[i.sub] ? i.sub : 'presa'; it.tr = TRACCE[i.tr] ? i.tr : 'giu'; }
     if (it.t === 'idraulico') { it.sub = IDRO[i.sub] ? i.sub : 'fredda'; it.tr = TRACCE[i.tr] ? i.tr : 'giu'; }
   });
   const lv = p.livelli && typeof p.livelli === 'object' ? p.livelli : {};
   out.livelli = {}; for (const k of Object.keys(LAYERS)) if (k !== 'plan') out.livelli[k] = lv[k] !== undefined ? lv[k] !== false : (k === 'el' ? p.vedElettrico !== false : true);
   out.vedElettrico = out.livelli.el;
+  out.fase = p.fase === 'attuale' ? 'attuale' : 'progetto';
   out.idee = (Array.isArray(p.idee) ? p.idee : []).filter(x => x && typeof x.testo === 'string').map(x => ({ id: String(x.id || uid()), testo: x.testo.slice(0, 2000), quando: typeof x.quando === 'string' ? x.quando : null }));
   const okKey = k => /^(r:[^:]+:([nsoe]|\d+)|m:[^:]+:[ab])$/.test(k);
   out.fogli = (Array.isArray(p.fogli) ? p.fogli : []).filter(f => f && typeof f.src === 'string' && okKey(String(f.par))).map(f => {
@@ -628,6 +633,7 @@ function normalize(p) {
   if (pl && typeof pl.src === 'string' && num(pl.iw) > 0 && num(pl.ih) > 0) {
     const op = num(pl.op);
     out.planimetria = { src: pl.src, iw: num(pl.iw), ih: num(pl.ih), k: num(pl.k) || 1, x: num(pl.x) || 0, y: num(pl.y) || 0, op: clamp(op == null ? .55 : op, .1, 1), vis: pl.vis !== false };
+    if (pl.ric) out.planimetria.ric = true;
   }
   return out;
 }
@@ -916,7 +922,9 @@ function bounds(withPlan) {
 /* livelli: cosa si vede in pianta e nel 3D */
 const layerOf = it => it.t === 'muro' || OPENINGS.has(it.t) ? 'muri' : it.t === 'idraulico' ? 'id' : ELEC.has(it.t) ? 'el' : 'arredi';
 const LV = () => P().livelli || {};
-const vis = it => LV()[layerOf(it)] !== false;
+// muri gialli (da demolire) e rossi (da costruire): il progetto finito o lo stato attuale
+const faseOk = it => !it.st || (P().fase === 'attuale' ? it.st !== 'cos' : it.st !== 'dem');
+const vis = it => LV()[layerOf(it)] !== false && faseOk(it);
 const isPt = it => it.t === 'idraulico' || it.t === 'elettrico';
 const ptSym = it => (PT_SUBS(it)[it.sub] || ['', '?'])[1];
 const ptKind = it => (PT_SUBS(it)[it.sub] || [TYPE_NAMES[it.t]])[0];
@@ -1366,14 +1374,14 @@ function drawPlan() {
   }
   // arredi (tappeti per primi, aperture per ultime)
   const rank = i => FLAT.has(i.t) ? 0 : i.t === 'muro' ? 1 : OPENINGS.has(i.t) ? 3 : ELEC.has(i.t) ? 4 : 2;
-  const order = p.arredi.filter(vis).sort((a, b) => (rank(a) - rank(b)) || ((a.z || 0) - (b.z || 0)));
+  const order = p.arredi.filter(it => vis(it) || (it.st && LV().muri !== false)).sort((a, b) => (rank(a) - rank(b)) || ((a.z || 0) - (b.z || 0)));
   const bad = new Set(); for (const it of p.arredi) if (collisions(it).length) bad.add(it.id);
   const cov = coverIndex(), nf = new Set(); for (const list of cov.values()) for (const c of list) nf.add(c.it.id);
   let joints = LV().muri !== false ? wallJoints(p.arredi.filter(it => it.t === 'muro' && vis(it))).map(j => `<path class="mwj" d="M${ptsStr(j.pts)}Z"/>`).join('') : '';
   for (const it of order) {
     if (joints && rank(it) > 1) { h += joints; joints = ''; }
     const sel = S.sel && S.sel.k === 'item' && S.sel.id === it.id;
-    h += `<g class="item${sel ? ' sel' : ''}${bad.has(it.id) ? ' bad' : nf.has(it.id) ? ' nf' : ''}${OPENINGS.has(it.t) ? ' op' : ''}" data-hit="item" data-id="${it.id}" transform="translate(${r1(it.x)} ${r1(it.y)}) rotate(${it.rot})">${symbol(it)}</g>`;
+    h += `<g class="item${sel ? ' sel' : ''}${bad.has(it.id) ? ' bad' : nf.has(it.id) ? ' nf' : ''}${OPENINGS.has(it.t) ? ' op' : ''}${it.st ? ' st-' + it.st + (faseOk(it) ? '' : ' off') : ''}" data-hit="item" data-id="${it.id}" transform="translate(${r1(it.x)} ${r1(it.y)}) rotate(${it.rot})">${symbol(it)}</g>`;
   }
   if (joints) h += joints;
   // punti coperti da un mobile: cerchio rosso
@@ -1475,7 +1483,7 @@ function updateScaleBar() {
   const px = L * s, lab = L >= 100 ? (L / 100).toLocaleString('it-IT') + ' m' : L + ' cm';
   scalebar.innerHTML = `<div class="bars" style="width:${Math.round(px)}px"><i style="width:25%"></i><i style="width:25%"></i><i style="width:50%"></i></div><div class="lab" style="width:${Math.round(px) + 2}px"><span>0</span><span>${lab}</span></div>`;
 }
-function updateEmpty() { emptyEl.hidden = !(P() && !P().stanze.length && !P().arredi.length && !P().planimetria && S.view === 'plan') || !!(S.doc && S.doc.state === 'busy'); const d = $('#emptyDoc'); if (d) d.hidden = !caps.sample; }
+function updateEmpty() { emptyEl.hidden = !(P() && !P().stanze.length && !P().arredi.length && !P().planimetria && S.view === 'plan') || !!(S.doc && S.doc.state === 'busy'); }
 
 /* ================= selezione ================= */
 function selected() {
@@ -1616,6 +1624,7 @@ function startCalib() {
 }
 function calibPoint(x, y) {
   if (!S.calib) return;
+  if (P().planimetria && P().planimetria.ric) { const sp = metroSnap(x, y); if (sp) { x = sp.x; y = sp.y; } }
   if (S.calib.step === 1) { S.calib.a = [x, y]; S.calib.step = 2; }
   else if (S.calib.step === 2) { S.calib.b = [x, y]; S.calib.step = 3; }
   renderHint(); requestDraw();
@@ -1643,7 +1652,7 @@ function renderHint() {
   hintEl.classList.remove('low');
   if (!c) { hintEl.hidden = true; hintEl.innerHTML = ''; return; }
   hintEl.hidden = false;
-  if (c.step === 1) hintEl.innerHTML = `<p><b>Scala, punto 1.</b> Tocca l'inizio di una misura che conosci sulla planimetria, per esempio la quota di una parete.</p><div class="row-btns"><button class="btn sm" data-act="calCancel">Annulla</button></div>`;
+  if (c.step === 1) hintEl.innerHTML = `<p><b>Scala, punto 1.</b> Tocca l'inizio di una misura che conosci sulla planimetria, per esempio la quota di una parete${P().planimetria && P().planimetria.ric ? ' o un muro da un angolo all’altro: i punti si agganciano agli angoli' : ''}.</p><div class="row-btns"><button class="btn sm" data-act="calCancel">Annulla</button></div>`;
   else if (c.step === 2) hintEl.innerHTML = `<p><b>Scala, punto 2.</b> Ora tocca la fine della stessa misura.</p><div class="row-btns"><button class="btn sm" data-act="calCancel">Annulla</button></div>`;
   else hintEl.innerHTML = `<p><b>Quanto è lunga nella realtà?</b></p><div class="field"><label for="calLen">Lunghezza reale</label><div class="num" data-unit="cm"><input id="calLen" inputmode="decimal" autocomplete="off" placeholder="es. 420"></div></div><div class="row-btns"><button class="btn sm primary" data-act="calApply">Applica la scala</button><button class="btn sm" data-act="calCancel">Annulla</button></div>`;
 }
@@ -1652,6 +1661,7 @@ function calibApply() {
   const real = num($('#calLen') && $('#calLen').value);
   if (!(real > 0)) { toast('Scrivi la lunghezza in centimetri'); return; }
   const d = Math.hypot(c.b[0] - c.a[0], c.b[1] - c.a[1]); if (d < 1) { toast('I due punti sono troppo vicini'); return; }
+  if (pl.ric) { scaleAll(real / d); S.calib = null; renderHint(); changed(); fitView(); renderPanel(true); toast('Misure corrette: muri, porte e stanze sono in scala'); return; }
   pl.k *= real / d; S.calib = null; renderHint(); changed(); fitView(); renderPanel(true);
   toast('Scala impostata: ora ricalca le stanze');
 }
@@ -1704,7 +1714,8 @@ function render3D() {
 function request3D() { if (S.view === '3d') render3D(); }
 function frame3D() {
   const b = bounds(false), cx = (b.x0 + b.x1) / 2, cz = (b.y0 + b.y1) / 2, size = Math.max(b.x1 - b.x0, b.y1 - b.y0, 300);
-  cam.target.set(cx, 0, cz); cam.r = size * 1.3 + 250; cam.theta = -.62; cam.phi = .9; render3D();
+  const asp = T.camera && T.camera.aspect > 0 ? T.camera.aspect : 1; // telefono in verticale: più lontano, così entra tutta
+  cam.target.set(cx, 0, cz); cam.r = (size * 1.3 + 250) * Math.max(1, Math.pow(1.15 / asp, .75)); cam.theta = -.62; cam.phi = .9; render3D();
 }
 
 /* materiali e trame */
@@ -2054,7 +2065,7 @@ function buildWalls(H) {
   for (const w of pw) g.add(slantWall(w, ops, H, mats));
   for (const j of wallJoints(pw.concat(p.arredi.filter(it => it.t === 'muro' && vis(it))))) { const m = jointMesh(j, H, mats); if (m) g.add(m); }
   for (const it of p.arredi) {
-    if (it.t !== 'muro') continue;
+    if (it.t !== 'muro' || !faseOk(it)) continue;
     const wg = new THREE.Group(), sm = mat(it.c, .95), wm = [sm, sm, cap, sm, sm, sm], r = norm(it.rot), z = it.z || 0;
     if (r % 90 === 0) {
       const o = r % 180 === 0 ? 'h' : 'v', along = o === 'h' ? it.x : it.y;
@@ -2208,6 +2219,7 @@ function update3DTools() {
   const inside = cam.mode === 'inside';
   $('#btnWalls').hidden = inside; $('#btnWalls').setAttribute('aria-pressed', String(S.walls === 'high'));
   $('#btnTop').hidden = !inside; $('#btnFrame').hidden = inside;
+  const bf = $('#btnFase'), att = P().fase === 'attuale'; bf.hidden = !P().arredi.some(i => i.st); bf.textContent = att ? 'Stato attuale' : 'Progetto finito'; bf.setAttribute('aria-pressed', String(att));
   const cur = roomSel.value;
   roomSel.innerHTML = `<option value="">${inside ? 'Cambia stanza…' : 'Entra in…'}</option>` + P().stanze.map(r => `<option value="${r.id}">${esc(r.nome)}</option>`).join('');
   if (cur && roomById(cur)) roomSel.value = cur;
@@ -2301,9 +2313,10 @@ function tabsHTML() {
     o += `<p class="note">Usa le misure nette, da muro a muro a intonaco finito: sulle piante del geometra sono le quote interne. Tocca una stanza nella pianta per spostarla o tirarne gli angoli.</p>`;
   } else if (S.tab === 'pianta') {
     const pl = p.planimetria;
-    if (caps.sample) o += docBanner() || `<button class="cta" data-act="docLoad">${I.cam}<span><b>Crea dal documento</b><small>Foto o PDF della planimetria: l’AI disegna stanze, porte e finestre con le misure.</small></span></button>`;
+    o += docBanner() || `<button class="cta" data-act="docLoad">${I.cam}<span><b>Crea dalla planimetria</b><small>Foto, screenshot o PDF: l’app ricalca muri, porte, finestre e stanze e fa il 3D. Non serve l’AI.</small></span></button>`;
+    if (p.arredi.some(i => i.st)) o += `<div class="cat-label">Muri gialli e rossi</div><div class="row-btns"><button class="btn sm${P().fase !== 'attuale' ? ' primary' : ''}" data-act="${P().fase === 'attuale' ? 'fase' : 'noop'}">Progetto finito</button><button class="btn sm${P().fase === 'attuale' ? ' primary' : ''}" data-act="${P().fase === 'attuale' ? 'noop' : 'fase'}">Stato attuale</button></div><p class="note">Progetto finito: i muri da demolire spariscono e quelli da costruire ci sono. Stato attuale: il contrario.</p>`;
     if (!pl) {
-      o += `<p class="note">Carica una foto o uno screenshot della pianta (JPG o PNG). Poi imposti la scala su una quota che conosci e ricalchi le stanze sopra.</p><button class="btn primary" data-act="planLoad">Carica planimetria</button>`;
+      o += `<p class="note">Se preferisci ricalcare a mano: carica la pianta come sfondo, imposta la scala su una quota che conosci e disegna sopra.</p><button class="btn" data-act="planLoad">Carica solo come sfondo</button>`;
     } else {
       o += `<div class="plan-thumb"><img src="${esc(photoURL(pl.src))}" alt="Planimetria caricata"></div>`;
       o += `<div class="row-btns"><button class="btn primary" data-act="calib">Imposta scala</button><button class="btn" data-act="planLoad">Sostituisci</button></div>`;
@@ -2396,7 +2409,7 @@ function itemHTML(it) {
   }
   o += `<div class="cat-label">Misure</div>`;
   if (op) o += `<div class="fields">${numField('f-w', 'Larghezza', 'w', fmt(it.w))}${numField('f-h', 'Altezza', 'h', fmt(it.h))}${numField('f-z', 'Da terra', 'z', fmt(it.z))}</div>`;
-  else if (wall) o += `${isWallSeg(it) ? '<p class="note">Tira i pallini alle estremità per allungarlo o inclinarlo: si agganciano ad angoli e altri muri.</p>' : ''}<div class="fields">${numField('f-w', 'Lunghezza', 'w', fmt(it.w))}${numField('f-d', 'Spessore', 'd', fmt(it.d))}${numField('f-h', 'Altezza', 'h', fmt(it.h))}</div><div class="cat-label">Foto delle pareti</div>${faceButtons(facesOfWall(it))}`;
+  else if (wall) o += `${isWallSeg(it) ? '<p class="note">Tira i pallini alle estremità per allungarlo o inclinarlo: si agganciano ad angoli e altri muri.</p>' : ''}<div class="fields">${numField('f-w', 'Lunghezza', 'w', fmt(it.w))}${numField('f-d', 'Spessore', 'd', fmt(it.d))}${numField('f-h', 'Altezza', 'h', fmt(it.h))}</div><div class="cat-label">Stato del muro</div><div class="row-btns">${[['', 'C’è già'], ['dem', 'Da demolire'], ['cos', 'Da costruire']].map(([v, l]) => `<button class="btn sm${(it.st || '') === v ? ' primary' : ''}" data-act="muroSt" data-v="${v}">${l}</button>`).join('')}</div><div class="cat-label">Foto delle pareti</div>${faceButtons(facesOfWall(it))}`;
   else o += `<div class="fields">${numField('f-w', 'Larghezza', 'w', fmt(it.w))}${numField('f-d', 'Profondità', 'd', fmt(it.d))}${numField('f-h', 'Altezza', 'h', fmt(it.h))}</div>`;
   if (it.t === 'angolare' || it.t === 'cucinaL') o += `<div class="fields two">${numField('f-arm', it.t === 'angolare' ? 'Profondità seduta' : 'Profondità piano', 'arm', fmt(it.arm || 60))}</div>`;
   o += `<div class="cat-label">Rotazione</div><div class="rot"><button class="btn sm" data-act="rot" data-v="-90" aria-label="Ruota di 90 gradi a sinistra">${I.rl}90°</button><button class="btn sm" data-act="rot" data-v="-15" aria-label="Ruota di 15 gradi a sinistra">−15°</button><span class="val" id="f-rotv">${Math.round(rotN(it.rot))}°</span><button class="btn sm" data-act="rot" data-v="15" aria-label="Ruota di 15 gradi a destra">+15°</button><button class="btn sm" data-act="rot" data-v="90" aria-label="Ruota di 90 gradi a destra">90°${I.rr}</button></div>`;
@@ -2576,9 +2589,9 @@ document.getElementById('app').addEventListener('click', e => {
       P().stanze = P().stanze.filter(r => r !== sel.o); S.armed = null; select(null); changed(); toast('Stanza eliminata. I mobili sono rimasti al loro posto'); break;
     case 'enterRoom': if (sel && sel.k === 'room') { const id = sel.o.id; setView('3d'); if (T.ok) { enterRoom(id); roomSel.value = id; } } break;
     case 'planLoad': $('#filePlan').value = ''; $('#filePlan').click(); break;
-    case 'docLoad': if (!caps.sample) { toast('L’AI non è disponibile qui'); break; } $('#fileDoc').value = ''; $('#fileDoc').click(); break;
-    case 'docStop': if (S.doc && S.doc.ctl) S.doc.ctl.abort(); S.doc = null; renderPanel(true); break;
-    case 'docOk': if (S.doc && S.doc.state === 'preview') S.doc.dv.slice().reverse().forEach(t => addIdea('Da verificare (letto dall’AI): ' + t)); S.doc = null; renderPanel(true); break;
+    case 'docLoad': $('#fileDoc').value = ''; $('#fileDoc').click(); break;
+    case 'docStop': if (S.doc && S.doc.ctl) S.doc.ctl.abort(); if (S.doc && S.doc.worker) S.doc.worker.terminate(); S.doc = null; renderPanel(true); updateEmpty(); break;
+    case 'docOk': if (S.doc && S.doc.state === 'preview') (S.doc.dv || []).slice().reverse().forEach(t => addIdea('Da verificare (letto dall’AI): ' + t)); S.doc = null; renderPanel(true); break;
     case 'docUndo': if (S.doc && S.doc.before) { S.project = normalize(JSON.parse(S.doc.before)); S.doc = null; S.sel = null; changed(); fitView(); renderPanel(true); updateEmpty(); toast('Tutto come prima'); } break;
     case 'calib': if (S.metroOn) setMetro(false); startCalib(); if (S.collapsed === false && window.innerWidth < 860) setCollapsed(true); break;
     case 'calCancel': S.calib = null; renderHint(); requestDraw(); break;
@@ -2618,6 +2631,10 @@ document.getElementById('app').addEventListener('click', e => {
     case 'shot': shot(); break;
     case 'shotFromPanel': setView('3d'); setTimeout(shot, 120); break;
     case 'walls': S.walls = S.walls === 'high' ? 'low' : 'high'; T.dirty = true; update3DTools(); render3D(); break;
+    case 'fase': P().fase = P().fase === 'attuale' ? 'progetto' : 'attuale'; changed(); update3DTools(); renderPanel(true);
+      toast(P().fase === 'attuale' ? 'Com’è oggi: ci sono i muri da demolire, mancano quelli nuovi' : 'Progetto finito: muri gialli tolti, muri rossi costruiti'); break;
+    case 'muroSt': if (sel && sel.k === 'item' && sel.o.t === 'muro') { const v = b.dataset.v; if (v) sel.o.st = v; else delete sel.o.st; changed(); renderPanel(true); if (S.view === '3d') update3DTools(); } break;
+    case 'docFix': startCalib(); if (S.collapsed === false && window.innerWidth < 860) setCollapsed(true); break;
     case 'exitInside': exitInside(); break;
     case 'frame': frame3D(); break;
   }
@@ -3281,11 +3298,176 @@ async function docRead(file) {
 }
 function docBanner() {
   const d = S.doc; if (!d) return '';
-  if (d.state === 'busy') return `<div class="ai busy"><span>Leggo il documento con l’AI</span><button class="btn sm" data-act="docStop">Annulla</button></div>`;
+  if (d.state === 'busy') return `<div class="ai busy"><span>${d.trace ? (d.ocr ? 'Leggo le scritte della pianta' : 'Ricalco la planimetria') : 'Leggo il documento con l’AI'}</span><button class="btn sm" data-act="docStop">Annulla</button></div>`;
   if (d.state === 'err') return `<div class="banner warn"><p>${esc(d.msg)}</p><div class="row-btns"><button class="btn sm" data-act="docOk">Chiudi</button></div></div>`;
+  if (d.trace) return `<div class="banner"><p><b>Ecco cosa ho ricalcato:</b> i muri, ${d.n} ${d.n === 1 ? 'stanza' : 'stanze'}, ${d.np} ${d.np === 1 ? 'porta' : 'porte'} e ${d.nf} tra finestre e portefinestre. Guarda la pianta e il 3D.</p><p class="note">${d.da === 'quote' ? 'Le misure vengono da quelle scritte sulla pianta: se una non torna, correggila.' : `Le misure sono stimate ${d.da === 'porte' ? 'dalla larghezza delle porte (circa 85 cm)' : d.da === 'stanze' ? 'dalla grandezza tipica delle stanze' : d.da === 'muri' ? 'dallo spessore dei muri esterni (circa 30 cm)' : 'a occhio'}: se conosci una misura vera, correggila e si sistema tutto.`}${d.st ? ' I muri gialli sono da demolire e i rossi da costruire: nel 3D vedi il progetto finito.' : ''} ${d.nomi ? 'Ho letto i nomi scritti sulla pianta: tocca una stanza per correggerla.' : 'I nomi delle stanze li scrivi tu toccandole.'}</p><div class="row-btns"><button class="btn sm primary" data-act="docOk">Usa</button><button class="btn sm" data-act="docFix">Correggi una misura</button><button class="btn sm" data-act="docUndo">Annulla</button></div></div>`;
   return `<div class="banner"><p><b>Ecco cosa ho letto:</b> ${d.n} ${d.n === 1 ? 'stanza' : 'stanze'}${d.nAp ? ` e ${d.nAp} tra porte e finestre` : ''}. Controlla nella pianta e nel 3D.</p>${d.dv.length ? `<p class="note">Da verificare: ${d.dv.map(esc).join(' · ')}</p>` : ''}<div class="row-btns"><button class="btn sm primary" data-act="docOk">Usa</button><button class="btn sm" data-act="docUndo">Annulla</button></div></div>`;
 }
-$('#fileDoc').addEventListener('change', e => { const f = e.target.files && e.target.files[0]; if (f) docRead(f); });
+$('#fileDoc').addEventListener('change', e => { const f = e.target.files && e.target.files[0]; if (f) traceRead(f); });
+
+
+/* ================= crea dalla planimetria (ricalco nel telefono, senza AI) ================= */
+/* Immagine o PDF › ricalco.js trova muri (pieni o a contorno, gialli e rossi), finestre, vani porta e stanze › anteprima › Usa o Annulla */
+function traceRun(data) {
+  return new Promise((res, rej) => {
+    let w = null; try { w = new Worker('ricalco.js'); } catch (e) {}
+    if (!w) { setTimeout(() => { try { res(window.ricalcaPianta(data)); } catch (e) { rej(e); } }, 30); return; }
+    S.doc.worker = w;
+    w.onmessage = e => { w.terminate(); if (e.data && e.data.ok) res(e.data.r); else rej(new Error(e.data && e.data.msg)); };
+    w.onerror = e => { w.terminate(); e.preventDefault && e.preventDefault(); try { res(window.ricalcaPianta(data)); } catch (er) { rej(er); } };
+    w.postMessage(data);
+  });
+}
+let PDFJS = null;
+function loadPdfJs() {
+  if (!PDFJS) PDFJS = new Promise((res, rej) => {
+    const sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    sc.onload = () => { const L = window.pdfjsLib; if (!L) { PDFJS = null; rej(new Error('pdf')); return; } L.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; res(L); };
+    sc.onerror = () => { PDFJS = null; rej(new Error('pdf')); }; document.head.appendChild(sc);
+  });
+  return PDFJS;
+}
+async function fileCanvas(file, pdf) {
+  const c = document.createElement('canvas'), MAX = 2600;
+  if (pdf) {
+    const L = await loadPdfJs(), doc = await L.getDocument({ data: await file.arrayBuffer() }).promise, pg = await doc.getPage(1);
+    const v0 = pg.getViewport({ scale: 1 }), v = pg.getViewport({ scale: 2400 / Math.max(v0.width, v0.height) });
+    c.width = Math.round(v.width); c.height = Math.round(v.height); const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+    await pg.render({ canvasContext: g, viewport: v }).promise; return c;
+  }
+  const u = URL.createObjectURL(file);
+  try {
+    const img = await loadImg(u), m = Math.max(img.naturalWidth, img.naturalHeight), k = m > MAX ? MAX / m : m < 1200 ? Math.min(2, 1600 / m) : 1;
+    c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+    const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height); return c;
+  } finally { URL.revokeObjectURL(u); }
+}
+// scritte sulla pianta (nomi delle stanze e misure) lette nel telefono con Tesseract, niente AI
+const OCR = { lib: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js', worker: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js', core: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1', lang: 'https://cdn.jsdelivr.net/npm/@tesseract.js-data/ita@1.0.0/4.0.0_best_int' };
+let OCRLIB = null;
+function loadOcr() {
+  if (!OCRLIB) OCRLIB = new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = OCR.lib; sc.onload = () => window.Tesseract ? res(window.Tesseract) : rej(new Error('ocr')); sc.onerror = () => { OCRLIB = null; rej(new Error('ocr')); }; document.head.appendChild(sc); });
+  return OCRLIB;
+}
+async function ocrWords(cv) {
+  const Ts = await loadOcr(), w = await Ts.createWorker('ita', 1, { workerPath: OCR.worker, corePath: OCR.core, langPath: OCR.lang });
+  try {
+    await w.setParameters({ tessedit_pageseg_mode: '11' }); // testo sparso, come su una pianta
+    const { data } = await w.recognize(cv);
+    return (data.words || []).filter(x => x.text && x.text.trim()).map(x => ({ t: x.text.trim(), c: x.confidence, x0: x.bbox.x0, y0: x.bbox.y0, x1: x.bbox.x1, y1: x.bbox.y1 }));
+  } finally { w.terminate(); }
+}
+const ROOM_WORDS = ['soggiorno', 'cucina', 'cucinotto', 'angolo', 'cottura', 'camera', 'letto', 'cameretta', 'matrimoniale', 'singola', 'doppia', 'bagno', 'wc', 'antibagno', 'disimpegno', 'disimp', 'ingresso', 'corridoio', 'ripostiglio', 'rip', 'studio', 'sala', 'pranzo', 'salotto', 'salone', 'living', 'balcone', 'terrazzo', 'terrazza', 'loggia', 'lavanderia', 'cabina', 'armadio', 'guardaroba', 'scala', 'scale', 'vano', 'soppalco', 'taverna', 'cantina', 'garage', 'box', 'veranda', 'tinello', 'ufficio', 'dispensa', 'lavatoio', 'portico', 'ingr', 'cam', 'sogg'];
+const plain = t => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z]/g, '');
+function near1(a, b) { if (Math.abs(a.length - b.length) > 1) return false; let i = 0, j = 0, e = 0; while (i < a.length && j < b.length) { if (a[i] === b[j]) { i++; j++; continue; } if (++e > 1) return false; if (a.length > b.length) i++; else if (b.length > a.length) j++; else { i++; j++; } } return e + (a.length - i) + (b.length - j) <= 1; }
+const numIt = t => { const v = parseFloat(String(t).replace(',', '.')); return isFinite(v) ? v : null; };
+// assegna nomi e misure scritte alle stanze ricalcate; con le misure ricava la scala
+function textRooms(words, r) {
+  const ests = [];
+  for (const q of r.stanze) {
+    const inside = words.filter(w => inPoly(q.pts, (w.x0 + w.x1) / 2, (w.y0 + w.y1) / 2)).sort((a, b) => Math.abs(a.y0 - b.y0) > (a.y1 - a.y0) * .6 ? a.y0 - b.y0 : a.x0 - b.x0);
+    const name = [];
+    inside.forEach((w, i) => {
+      const p = plain(w.t);
+      const ok = p.length >= 2 && (ROOM_WORDS.includes(p) || (p.length >= 5 && ROOM_WORDS.some(k => k.length >= 5 && near1(p, k))) || (w.c >= 80 && p.length >= 4 && /^[A-ZÀ-Ý]{4,}$/.test(w.t.replace(/[.:]/g, ''))));
+      const glue = (p === 'da' || p === 'di' || p === 'e') && name.length && i + 1 < inside.length;
+      if (ok || glue) name.push(ok ? (ROOM_WORDS.find(k => k === p || (p.length >= 5 && near1(p, k))) || p) : p);
+    });
+    while (name.length && ['da', 'di', 'e'].includes(name[name.length - 1])) name.pop();
+    if (name.length) { const n = name.join(' ').slice(0, 40); q.nome = n[0].toUpperCase() + n.slice(1); }
+    const txt = inside.map(w => w.t).join(' ');
+    const mq = txt.match(/(\d+(?:[.,]\d+)?)\s*(?:mq|m2|m²|m\^2)/i);
+    if (mq) { const a = numIt(mq[1]); if (a > 1 && a < 200) ests.push(Math.sqrt(a * 1e4 / q.area)); }
+    const dm = txt.match(/(\d+(?:[.,]\d+)?)\s*[x×X*]\s*(\d+(?:[.,]\d+)?)/);
+    if (dm && !mq) {
+      let a = numIt(dm[1]), b = numIt(dm[2]); if (a < 30) a *= 100; if (b < 30) b *= 100;
+      let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity; for (const [x, y] of q.pts) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+      const bw = Math.max(x1 - x0, y1 - y0), bh = Math.min(x1 - x0, y1 - y0), L = Math.max(a, b), S = Math.min(a, b);
+      if (a > 50 && b > 50 && bw > 0) ests.push((L / bw + S / bh) / 2);
+    }
+  }
+  if (ests.length) {
+    const k = ests.sort((p, q) => p - q)[ests.length >> 1];
+    if (k > r.cmPx * .25 && k < r.cmPx * 4) { r.cmPx = k; r.scalaDa = 'quote'; }
+  }
+}
+async function traceRead(file) {
+  const pdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+  if (!pdf && !/^image\//.test(file.type)) { toast('Serve una foto, uno screenshot o un PDF della pianta'); return; }
+  if (file.size > 25e6) { toast('File troppo grande: massimo 25 MB'); return; }
+  const doc = { state: 'busy', trace: true }; S.doc = doc; S.sel = null; S.tab = 'pianta'; if (S.collapsed) setCollapsed(false); renderPanel(true); updateEmpty();
+  const fail = msg => { if (S.doc !== doc) return; S.doc = { state: 'err', msg }; renderPanel(true); updateEmpty(); };
+  let cv, r = null;
+  try { cv = await fileCanvas(file, pdf); } catch (e) { fail(pdf ? 'Non riesco ad aprire il PDF. Prova con uno screenshot della pianta.' : 'Non riesco ad aprire il file.'); return; }
+  if (S.doc !== doc) return;
+  try { // foto un po' storta: la raddrizzo prima del ricalco
+    const a = window.angoloPianta ? window.angoloPianta(cv.getContext('2d').getImageData(0, 0, cv.width, cv.height)) : 0;
+    if (Math.abs(a) >= .4) { const rad = -a * Math.PI / 180, c2 = document.createElement('canvas'), cs = Math.abs(Math.cos(rad)), sn = Math.abs(Math.sin(rad));
+      c2.width = Math.round(cv.width * cs + cv.height * sn); c2.height = Math.round(cv.width * sn + cv.height * cs);
+      const g2 = c2.getContext('2d'); g2.fillStyle = '#fff'; g2.fillRect(0, 0, c2.width, c2.height); g2.translate(c2.width / 2, c2.height / 2); g2.rotate(rad); g2.drawImage(cv, -cv.width / 2, -cv.height / 2); cv = c2; }
+  } catch (e) {}
+  const ocrP = Promise.race([ocrWords(cv), new Promise(res => setTimeout(() => res(null), 90000))]).catch(() => null);
+  try { r = await traceRun(cv.getContext('2d').getImageData(0, 0, cv.width, cv.height)); } catch (e) { r = null; }
+  if (r && S.doc === doc && r.muri.length) { doc.ocr = true; renderPanel(true); const words = await ocrP; if (words && words.length) try { textRooms(words, r); } catch (e) {} }
+  if (S.doc !== doc) return; // annullato
+  if (!r || r.muri.filter(m => m.tipo === 'muro').length < 4) {
+    if (caps.sample) { S.doc = null; docRead(file); return; } // foto difficile: se c'è l'AI prova con quella
+    fail('In questa immagine non riesco a riconoscere i muri. Serve la pianta dritta e nitida: va benissimo il PDF o lo screenshot del disegno del geometra.'); return;
+  }
+  const j = await new Promise(res => { const k = Math.min(1, 2400 / Math.max(cv.width, cv.height)), c2 = document.createElement('canvas'); c2.width = Math.round(cv.width * k); c2.height = Math.round(cv.height * k); c2.getContext('2d').drawImage(cv, 0, 0, c2.width, c2.height); c2.toBlob(b => res({ blob: b, w: c2.width, h: c2.height }), 'image/jpeg', .85); });
+  if (S.doc !== doc) return;
+  traceBuild(r, j, cv.width);
+}
+function traceBuild(r, j, tw) {
+  const before = snap(), p = P(), k = r.cmPx, empty = !p.stanze.length && !p.arredi.length;
+  const ox = empty ? 0 : (bounds(false).x1 + 300), oy = empty ? 0 : bounds(false).y0;
+  const X = x => Math.round(((x - r.box.x0) * k + ox) * 10) / 10, Y = y => Math.round(((y - r.box.y0) * k + oy) * 10) / 10;
+  const rd = v => Math.round(v * 10) / 10, H = p.altezza;
+  p.esempio = false;
+  let nm = 0, np = 0, nf = 0, st = false;
+  const inner = r.muri.filter(m => m.tipo === 'muro' && !m.parapetto && !m.vetro && !m.vano).map(m => m.t * k).sort((a, b) => a - b);
+  if (empty && inner.length) p.spessore = clamp(Math.round(inner[inner.length >> 1]), 10, 40);
+  for (const m of r.muri) {
+    if (m.tipo !== 'muro') continue;
+    const ax = X(m.a[0]), ay = Y(m.a[1]), bx = X(m.b[0]), by = Y(m.b[1]), L = Math.hypot(bx - ax, by - ay); if (L < 4) continue;
+    const it = makeItem(catDef('muro', m.parapetto ? 'Parapetto balcone' : 'Tramezzo'), rd((ax + bx) / 2), rd((ay + by) / 2), rotN(Math.atan2(by - ay, bx - ax) * 180 / Math.PI));
+    it.w = rd(L); it.d = Math.max(4, rd(m.t * k)); it.h = m.parapetto ? 100 : H;
+    it.n = m.parapetto ? 'Parapetto' : m.stato === 'dem' ? 'Muro da demolire' : m.stato === 'cos' ? 'Muro da costruire' : it.d >= 25 ? 'Muro esterno' : 'Muro';
+    if (m.stato) { it.st = m.stato; st = true; }
+    p.arredi.push(it); if (!m.vano && !m.vetro) nm++;
+  }
+  for (const a of r.aperture) {
+    const it = makeItem(catDef(a.tipo), X(a.x), Y(a.y), a.rot || 0);
+    it.w = Math.max(30, Math.round(a.w * k)); it.d = Math.max(4, rd((a.t || 10) * k));
+    p.arredi.push(it); if (a.tipo === 'porta') np++; else nf++;
+  }
+  const cen = s => { let x = 0, y = 0; for (const q of s.pts) { x += q[0]; y += q[1]; } return [x / s.pts.length, y / s.pts.length]; };
+  const rows = r.stanze.slice().sort((a, b) => { const A = cen(a), B = cen(b); return Math.abs(A[1] - B[1]) > 150 / k ? A[1] - B[1] : A[0] - B[0]; });
+  let n = 0;
+  for (const q of rows) {
+    const room = { id: uid(), nome: q.nome || (q.scale ? 'Scale' : q.balcone ? 'Balcone' : 'Stanza ' + (++n)), x: 0, y: 0, w: 0, h: 0, pav: q.balcone || q.scale ? 'gres' : 'legno', muri: false, lbl: true, pts: q.pts.map(v => [X(v[0]), Y(v[1])]) };
+    fitBox(room); p.stanze.push(room);
+  }
+  if (empty || !p.planimetria) { // la planimetria resta sotto, già in scala con i muri
+    if (p.planimetria) markRemoved(p.planimetria.src);
+    const path = 'foto/pianta-' + uid() + '.jpg', kk = k * tw / j.w; S.photos.set(path, j.blob); S.pending.add(path); IDB.put('blobs', path, j.blob);
+    p.planimetria = { src: path, iw: j.w, ih: j.h, k: kk, x: X(0), y: Y(0), op: .3, vis: true, ric: true };
+  }
+  if (st) p.fase = 'progetto';
+  S.doc = { state: 'preview', trace: true, before, n: r.stanze.length, nm, np, nf, st, da: r.scalaDa, nomi: r.stanze.some(q => q.nome), dv: [] }; S.sel = null; S.tab = 'pianta';
+  changed(); fitView(); renderPanel(true); updateEmpty();
+}
+// la misura giusta ingrandisce o rimpicciolisce tutto quello che è stato ricalcato
+function scaleAll(f) {
+  const p = P(), sc = v => Math.round(v * f * 10) / 10;
+  for (const r of p.stanze) { r.x = sc(r.x); r.y = sc(r.y); r.w = sc(r.w); r.h = sc(r.h); if (r.pts) r.pts = r.pts.map(q => [sc(q[0]), sc(q[1])]); }
+  for (const it of p.arredi) {
+    it.x = sc(it.x); it.y = sc(it.y);
+    if (it.t === 'muro') { it.w = sc(it.w); it.d = Math.max(4, sc(it.d)); }
+    else if (OPENINGS.has(it.t)) { it.w = Math.round(it.w * f); it.d = Math.max(4, sc(it.d)); }
+  }
+  const pl = p.planimetria; if (pl) { pl.x = sc(pl.x); pl.y = sc(pl.y); pl.k *= f; }
+}
 
 
 /* ================= comando a voce (AI) ================= */
