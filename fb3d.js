@@ -106,6 +106,8 @@
     return { uid: id, nome: '', email: '', ruolo: 'base', stato: 'attivo', app: LIBERE, ospite: true };
   }
   var ME = null, UT = {}, UT_UNSUB = null, ME_UNSUB = null, registering = false, started = false, MISSING_T = 0;
+  // valori scritti a mano nella console di Firebase possono avere spazi o un a capo in fondo
+  function pulito(x) { x = x || {}; ['stato', 'ruolo'].forEach(function (k) { if (typeof x[k] === 'string') x[k] = x[k].trim(); }); return x; }
   function isAdmin() { return !!ME && ME.ruolo === 'admin'; }
   function canApp(u, a) { return !!u && u.stato === 'attivo' && (u.ruolo === 'admin' || (u.app || []).indexOf(a) >= 0); }
 
@@ -299,7 +301,7 @@
         }, 5000);
         return;
       }
-      var x = d.data(); x.uid = u.uid; x.email = x.email || u.email;
+      var x = pulito(d.data()); x.uid = u.uid; x.email = x.email || u.email;
       var ok = x.stato === 'attivo' && (!APP || canApp(x, APP));
       if (started) {
         var was = ME; ME = x;
@@ -327,7 +329,7 @@
 
   function afterStart() {
     UT_UNSUB = fs.collection('utenti').onSnapshot(function (s) {
-      var m = {}; s.docs.forEach(function (d) { m[d.id] = d.data(); }); UT = m; if ($('#fb3dpan')) renderPanel(); emitUsers();
+      var m = {}; s.docs.forEach(function (d) { m[d.id] = pulito(d.data()); }); UT = m; if ($('#fb3dpan')) renderPanel(); emitUsers();
     }, function () { });
   }
   var USUBS = [];
