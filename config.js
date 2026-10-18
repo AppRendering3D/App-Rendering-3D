@@ -1,0 +1,15 @@
+/* Collegamento al database Firebase delle app 3D (progetto «App 3D»).
+   Questi valori non sono segreti: servono al sito per sapere a quale progetto collegarsi.
+   La protezione dei dati sta nelle regole del database (firestore.rules). */
+window.APP3D_FIREBASE_CONFIG = {
+  apiKey: 'AIzaSyC-OqNF1Ag6RHT_KpExcD_h6_UHuwLgDD4',
+  authDomain: 'apprendering3d.firebaseapp.com',
+  projectId: 'apprendering3d',
+  storageBucket: 'apprendering3d.firebasestorage.app',
+  messagingSenderId: '740096788257',
+  appId: '1:740096788257:web:12e840958c28ffd1f6e060'
+};
+
+/* App che si aprono senza email e password (per ora nessuna; possibili: 'casa', 'bordo').
+   Deve corrispondere alla funzione libera() in firestore.rules. */
+window.APP3D_LIBERE = [];

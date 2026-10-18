@@ -1,0 +1,48 @@
+rules_version = '2';
+// Regole di sicurezza del database delle app 3D.
+// Da incollare in Firebase › Firestore Database › Regole, poi «Pubblica».
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function profilo() { return /databases/$(database)/documents/utenti/$(request.auth.uid); }
+    function attivo() { return signedIn() && exists(profilo()) && get(profilo()).data.stato == 'attivo'; }
+    function admin() { return attivo() && get(profilo()).data.ruolo == 'admin'; }
+    // chi può aprire un'app: gli amministratori tutte, gli altri quelle spuntate
+    function puo(app) { return admin() || (attivo() && app in get(profilo()).data.get('app', [])); }
+    function inizializzato() { return exists(/databases/$(database)/documents/config/inizializzato); }
+
+    // Il primo che si registra diventa amministratore; poi questo segno blocca tutto
+    match /config/inizializzato {
+      allow read: if signedIn();
+      allow create: if signedIn() && !inizializzato() && getAfter(profilo()).data.ruolo == 'admin';
+    }
+
+    // Persone: ognuno vede il proprio profilo, gli attivi vedono i nomi di tutti,
+    // solo gli amministratori approvano e decidono le app
+    match /utenti/{uid} {
+      allow read: if attivo() || (signedIn() && request.auth.uid == uid);
+      allow create: if signedIn() && request.auth.uid == uid && (
+        (request.resource.data.stato == 'in_attesa' && request.resource.data.ruolo == 'base' && request.resource.data.app.size() == 0)
+        || (!inizializzato() && existsAfter(/databases/$(database)/documents/config/inizializzato)
+            && request.resource.data.stato == 'attivo' && request.resource.data.ruolo == 'admin'));
+      allow update: if admin() || (signedIn() && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nome', 'modificato']));
+      allow delete: if admin();
+    }
+
+    // App di libero accesso (le stesse di APP3D_LIBERE in config.js): chiunque apre il sito legge e scrive.
+    // Per ora nessuna. Per aprirne una scrivila nella lista, per esempio ['bordo'], e aggiungila anche in config.js.
+    function libera(app) { return app in []; }
+
+    // Casa Nuova 3D: archivio delle case, progetti e foto
+    match /indiceCase/{id} { allow read, write: if libera('casa') || puo('casa'); }
+    match /case/{id} { allow read, write: if libera('casa') || puo('casa'); }
+    match /casaFoto/{id} { allow read, write: if libera('casa') || puo('casa'); }
+
+    // Bordo 3D: archivio delle barche, schede, foto e impostazioni
+    match /indice/{id} { allow read, write: if libera('bordo') || puo('bordo'); }
+    match /barche/{id} { allow read, write: if libera('bordo') || puo('bordo'); }
+    match /foto/{id} { allow read, write: if libera('bordo') || puo('bordo'); }
+    match /impostazioni/{id} { allow read, write: if libera('bordo') || puo('bordo'); }
+  }
+}
