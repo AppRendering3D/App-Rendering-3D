@@ -3702,6 +3702,8 @@ function setupOnce() {
 
 /* ================= sito proprio: apri, crea, chiudi ed elimina le case ================= */
 function showArch(on) { $('#arch').hidden = !on; $('#btnArch').hidden = !SITE || on; if (on) renderArch(); }
+// l'amministratore vede anche le case degli altri: scriviamo di chi sono
+const altrui = c => { const me = window.__FB3D && window.__FB3D.me && window.__FB3D.me(); return !!(me && me.admin && c.prop && c.prop !== me.id); };
 function renderArch() {
   if ($('#arch').hidden) return;
   const fmt = t => { try { return new Date(t).toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' }); } catch (e) { return ''; } };
@@ -3711,7 +3713,7 @@ function renderArch() {
   else if (S.cases === null) h += `<div class="arch-empty">Non riesco a leggere l’archivio. Controlla la connessione e riapri la pagina.</div>`;
   else if (!S.cases.length) h += `<div class="arch-empty"><b>L’archivio è vuoto.</b> Crea la prima casa partendo dalla planimetria, oppure importa la copia esportata da Casa Nuova 3D su Claude (Progetto › Esporta copia).</div>`;
   else h += S.cases.slice().sort((a, b) => String(b.aggiornato || '').localeCompare(String(a.aggiornato || ''))).map(c =>
-    `<button class="arch-card" data-act="openCasa" data-id="${esc(c.id)}"><b>${esc(c.nome || 'Casa')}</b><span>${c.stanze || 0} ${c.stanze === 1 ? 'stanza' : 'stanze'} · ${c.arredi || 0} elementi${c.aggiornato ? ' · aggiornata il ' + fmt(c.aggiornato) : ''}</span></button>`).join('');
+    `<button class="arch-card" data-act="openCasa" data-id="${esc(c.id)}"><b>${esc(c.nome || 'Casa')}</b><span>${c.stanze || 0} ${c.stanze === 1 ? 'stanza' : 'stanze'} · ${c.arredi || 0} elementi${c.aggiornato ? ' · aggiornata il ' + fmt(c.aggiornato) : ''}${altrui(c) ? ' · di ' + esc(c.propNome || 'un altro account') : ''}</span></button>`).join('');
   $('#archIn').innerHTML = h;
 }
 async function startSite(ui) {

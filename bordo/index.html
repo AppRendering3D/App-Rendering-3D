@@ -627,6 +627,8 @@ const useCap = n => { if (!CL) return Promise.resolve(null); try { return CL.use
 const caps = { db: null, user: null, dl: null, sample: null };
 const AI_OFF = 'L’AI non è ancora attiva su questo sito: manca la chiave di sicurezza (reCAPTCHA) in Firebase. Intanto puoi disegnare a mano.';
 const CHUNK = 180000;
+// l'amministratore vede anche le barche degli altri: scriviamo di chi sono
+const altrui = b => { const me = window.__FB3D && window.__FB3D.me && window.__FB3D.me(); return !!(me && me.admin && b.prop && b.prop !== me.id); };
 const Store = {
   listeners: [],
   async init() {
@@ -666,7 +668,7 @@ const Store = {
     PHOTOS.set(id, dataUrl);
     if (S.mode === 'db') {
       const parts = []; for (let i = 0; i < dataUrl.length; i += CHUNK) parts.push(dataUrl.slice(i, i + CHUNK));
-      for (let i = parts.length - 1; i >= 1; i--) await caps.db.doc('foto/' + id + '~' + i).set({ d: parts[i] });
+      for (let i = parts.length - 1; i >= 1; i--) await caps.db.doc('foto/' + id + '~' + i).set({ d: parts[i], barca: (meta || {}).barca || '' });
       await caps.db.doc('foto/' + id).set(Object.assign({ n: parts.length, d: parts[0] }, meta || {}));
     } else await IDB.put('foto:' + id, dataUrl);
     return id;
@@ -1696,7 +1698,7 @@ function renderArchive() {
   else if (S.mode === 'local') h += `<div class="banner warn"><p>L'archivio condiviso non è disponibile qui: le barche restano solo su questo dispositivo.</p></div>`;
   if (S.status === 'loading') h += `<div class="arch-empty"><p>Apro l'archivio…</p></div>`;
   else if (!S.boats.length) h += `<div class="arch-empty">${thumbSVG(null)}<p><b>L'archivio è vuoto.</b> Aggiungi la prima barca con le misure del manuale, poi inserisci il disegno o una foto di fianco per avere la carena precisa.</p><button class="btn primary" data-act="newBoat">Aggiungi la prima barca</button></div>`;
-  else h += `<div class="cards">${list.map(b => `<button class="card" data-act="openBoat" data-id="${esc(b.id)}">${thumbSVG(b.sag)}<div class="card-body"><div class="card-top"><span class="card-name">${esc(b.nome)}</span>${b.esempio ? '<span class="chip ex">Esempio</span>' : `<span class="chip">${esc((TIPI[b.tipo] || '').split(' ')[0])}</span>`}</div><span class="card-model">${esc([b.marca, b.modello].filter(Boolean).join(' ') || '—')}</span><div class="card-meta"><span>${fmt2((b.loa || 0) / 100)} m</span>${b.cliente ? `<span>${esc(b.cliente)}</span>` : ''}${b.aggiornato ? `<span>${new Date(b.aggiornato).toLocaleDateString('it-IT')}</span>` : ''}</div></div></button>`).join('')}${!list.length ? '<p class="note">Nessuna barca corrisponde alla ricerca.</p>' : ''}</div>`;
+  else h += `<div class="cards">${list.map(b => `<button class="card" data-act="openBoat" data-id="${esc(b.id)}">${thumbSVG(b.sag)}<div class="card-body"><div class="card-top"><span class="card-name">${esc(b.nome)}</span>${b.esempio ? '<span class="chip ex">Esempio</span>' : `<span class="chip">${esc((TIPI[b.tipo] || '').split(' ')[0])}</span>`}</div><span class="card-model">${esc([b.marca, b.modello].filter(Boolean).join(' ') || '—')}</span><div class="card-meta"><span>${fmt2((b.loa || 0) / 100)} m</span>${b.cliente ? `<span>${esc(b.cliente)}</span>` : ''}${b.aggiornato ? `<span>${new Date(b.aggiornato).toLocaleDateString('it-IT')}</span>` : ''}${altrui(b) ? `<span>di ${esc(b.propNome || 'un altro account')}</span>` : ''}</div></div></button>`).join('')}${!list.length ? '<p class="note">Nessuna barca corrisponde alla ricerca.</p>' : ''}</div>`;
   const st = S.impostazioni || {};
   h += `<details class="settings"><summary>Dati del cantiere per i PDF</summary><p class="note">Vanno nell'intestazione dei preventivi. Puoi compilarli quando vuoi.</p><div class="fields two">${[['nome', 'Nome'], ['indirizzo', 'Indirizzo'], ['piva', 'Partita IVA'], ['tel', 'Telefono'], ['email', 'Email']].map(([k, l]) => txtField('st-' + k, l, st[k] || '', 'data-st', k)).join('')}</div><button class="btn" data-act="saveSettings">Salva i dati</button></details>`;
   archive.innerHTML = h;

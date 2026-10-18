@@ -123,8 +123,34 @@
       setTimeout(function () { if (!done) { done = true; res(); } }, 1500);
     });
   }
+  /* ---------- ogni casa e barca ha il suo proprietario (campo prop) ----------
+     Chi non è amministratore legge solo le sue; le foto seguono la casa o la barca a cui appartengono.
+     Le case e barche senza proprietario (quelle di prima) le vede solo l'amministratore. */
+  var OWN = { indiceCase: 'case', 'case': 'case', casaFoto: 'case', indice: 'barche', barche: 'barche', foto: 'barche' };
+  var OWNER = {}; // 'case/<id>' o 'barche/<id>' -> { prop, nome }
+  function ownKey(path, x) {
+    var p = String(path).split('/'), c = p[0];
+    if (!OWN[c] || p.length !== 2) return null;
+    if (c === 'casaFoto') return x && x.casa ? 'case/' + x.casa : null;
+    if (c === 'foto') return x && x.barca ? 'barche/' + x.barca : null;
+    return OWN[c] + '/' + p[1];
+  }
+  function owning() { return !!ME && !ME.ospite; }
+  function seen(path, x) {
+    var c = String(path).split('/')[0];
+    if (!x || c === 'casaFoto' || c === 'foto') return;
+    var k = ownKey(path, x); if (k && (x.prop || !OWNER[k])) OWNER[k] = { prop: x.prop || '', nome: x.propNome || '' };
+  }
+  function withOwner(path, data) {
+    var k = ownKey(path, data); if (!owning() || !OWN[String(path).split('/')[0]]) return data;
+    var o = (k && OWNER[k] && OWNER[k].prop) ? OWNER[k] : { prop: ME.uid, nome: ME.nome || '' };
+    data.prop = o.prop; data.propNome = o.nome;
+    if (k) OWNER[k] = o;
+    return data;
+  }
   function wrapDoc(d) {
     var x = d.exists ? d.data() : null;
+    if (x && d.ref) seen(d.ref.path, x);
     return { id: d.id, exists: !!x, data: function () { return x ? dec(clone(x)) : undefined; }, metadata: d.metadata };
   }
   function wrapQuery(s) { var docs = s.docs.map(wrapDoc); return { docs: docs, size: docs.length, empty: !docs.length, metadata: s.metadata }; }
@@ -133,7 +159,7 @@
     return {
       id: r.id,
       get: function () { return r.get().then(wrapDoc, function (e) { throw errOf(e); }); },
-      set: function (data) { return settle(r.set(enc(clone(data || {})))); },
+      set: function (data) { return settle(r.set(enc(withOwner(path, clone(data || {}))))); },
       update: function (data) { return settle(r.update(enc(clone(data || {})))); },
       delete: function () { return settle(r.delete()); },
       onSnapshot: function (next, err) { return r.onSnapshot(function (s) { next(wrapDoc(s)); }, function (e) { if (err) err(errOf(e)); }); }
@@ -150,7 +176,7 @@
     };
   }
   var DB = {
-    collection: function (name) { return query(fs.collection(name), name); },
+    collection: function (name) { var q = fs.collection(name); if (OWN[name] && owning() && !isAdmin()) q = q.where('prop', '==', ME.uid); return query(q, name); },
     doc: function (path) { return ref(path); }
   };
 
