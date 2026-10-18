@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>App 3D</title>
 <meta name="theme-color" content="#F6F4EF">
+<link rel="preload" as="image" href="splash.jpg">
 <link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="icon-180.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="App 3D">
 <style>
 :root{--b:#F6F4EF;--s:#FFFFFF;--t:#1F2328;--t2:#5B6270;--l:#DCD8CF;--a:#1D6FD8;--w:#B4561F}
@@ -24,6 +25,10 @@ h4{font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;color:var(--t2)
 .row{display:flex;align-items:center;justify-content:space-between;width:100%;background:var(--s);border:1px solid var(--l);border-radius:14px;padding:14px 16px;margin-bottom:8px;font:inherit;color:inherit;cursor:pointer;text-align:left}
 .pill{font-size:.8rem;font-weight:600;padding:2px 9px;border-radius:99px;background:var(--w);color:#fff}
 .none{color:var(--t2);background:var(--s);border:1px dashed var(--l);border-radius:14px;padding:16px}
+#splash{position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;background:#0D223E;transition:opacity .45s ease}
+#splash::before{content:"";position:absolute;inset:-40px;background:url(splash.jpg) center/cover;filter:blur(28px) brightness(.8)}
+#splash img{position:relative;width:min(92vw,92vh,560px);height:auto;border-radius:28px;box-shadow:0 18px 60px rgba(0,0,0,.45)}
+#splash.via{opacity:0;pointer-events:none}
 </style>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
@@ -33,6 +38,20 @@ h4{font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;color:var(--t2)
 <script src="fb3d.js"></script>
 </head>
 <body>
+<div id="splash" aria-hidden="true"><img src="splash.jpg" alt=""></div>
+<script>
+/* Schermata di apertura: una volta per apertura del sito, poi sparisce da sola (o al tocco). */
+(function () {
+  var el = document.getElementById('splash'), vista = false;
+  try { vista = sessionStorage.getItem('app3d-splash') === '1'; sessionStorage.setItem('app3d-splash', '1'); } catch (e) {}
+  if (vista) { el.remove(); return; }
+  var t0 = Date.now();
+  function via() { if (!el.parentNode) return; el.classList.add('via'); setTimeout(function () { el.remove(); }, 500); }
+  el.addEventListener('click', via);
+  window.addEventListener('load', function () { setTimeout(via, Math.max(0, 1400 - (Date.now() - t0))); });
+  setTimeout(via, 4000);
+})();
+</script>
 <main>
   <h1>App 3D</h1>
   <p class="sub" id="hello">Progetti in 3D di case e barche</p>
