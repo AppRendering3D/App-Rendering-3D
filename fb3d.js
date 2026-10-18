@@ -105,7 +105,7 @@
     var id = ''; try { id = localStorage.getItem('app3d-ospite') || ''; if (!id) { id = 'o' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); localStorage.setItem('app3d-ospite', id); } } catch (e) { id = 'ospite'; }
     return { uid: id, nome: '', email: '', ruolo: 'base', stato: 'attivo', app: LIBERE, ospite: true };
   }
-  var ME = null, UT = {}, UT_UNSUB = null, ME_UNSUB = null, registering = false, started = false;
+  var ME = null, UT = {}, UT_UNSUB = null, ME_UNSUB = null, registering = false, started = false, MISSING_T = 0;
   function isAdmin() { return !!ME && ME.ruolo === 'admin'; }
   function canApp(u, a) { return !!u && u.stato === 'attivo' && (u.ruolo === 'admin' || (u.app || []).indexOf(a) >= 0); }
 
@@ -243,7 +243,9 @@
   function createProfile(u, nome, email) {
     var cfg = fs.collection('config').doc('inizializzato'), me = fs.collection('utenti').doc(u.uid);
     var base = { nome: nome, email: email, creato: nowISO(), modificato: nowISO() };
-    var wait = function () { return me.set(Object.assign({}, base, { stato: 'in_attesa', ruolo: 'base', app: [] })); };
+    var wait = function () {
+      return me.get({ source: 'server' }).then(function (d) { if (!d.exists) return me.set(Object.assign({}, base, { stato: 'in_attesa', ruolo: 'base', app: [] })); });
+    };
     return cfg.get({ source: 'server' }).then(function (c) {
       if (c.exists) return wait();
       var b = fs.batch();
@@ -287,7 +289,16 @@
     if (ME_UNSUB) { ME_UNSUB(); ME_UNSUB = null; }
     overlay('<div class="spin"></div>');
     ME_UNSUB = fs.collection('utenti').doc(u.uid).onSnapshot(function (d) {
-      if (!d.exists) { if (!registering) createProfile(u, (u.email || '').split('@')[0], u.email || '').catch(function () { }); return; }
+      // profilo mancante: aspetto un attimo, potrebbe crearlo un'altra scheda che sta registrando
+      if (!d.exists) {
+        if (registering || MISSING_T) return;
+        MISSING_T = setTimeout(function () {
+          fs.collection('utenti').doc(u.uid).get({ source: 'server' }).then(function (s2) {
+            if (!s2.exists && !registering) return createProfile(u, (u.email || '').split('@')[0], u.email || '');
+          }).catch(function () { }).finally(function () { MISSING_T = 0; });
+        }, 5000);
+        return;
+      }
       var x = d.data(); x.uid = u.uid; x.email = x.email || u.email;
       var ok = x.stato === 'attivo' && (!APP || canApp(x, APP));
       if (started) {
