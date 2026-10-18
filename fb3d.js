@@ -194,7 +194,7 @@
     if (!window.APP3D_RECAPTCHA) return Promise.resolve(null);
     if (!APPCHECK) APPCHECK = new Promise(function (res) {
       var sc = document.createElement('script'); sc.src = 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app-check-compat.js';
-      sc.onload = function () { try { var ac = firebase.appCheck(); ac.activate(new firebase.appCheck.ReCaptchaV3Provider(window.APP3D_RECAPTCHA), true); res(ac); } catch (e) { res(null); } };
+      sc.onload = function () { try { var ac = firebase.appCheck(); ac.activate(new firebase.appCheck.ReCaptchaEnterpriseProvider(window.APP3D_RECAPTCHA), true); res(ac); } catch (e) { res(null); } };
       sc.onerror = function () { res(null); }; document.head.appendChild(sc);
     });
     return APPCHECK;

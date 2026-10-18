@@ -16,3 +16,7 @@ window.APP3D_LIBERE = [];
 
 /* Modello di Gemini usato dall'AI (Firebase › AI Logic). Se Google lo ritira, basta cambiare il nome qui. */
 window.APP3D_AI_MODEL = 'gemini-3.8-flash';
+
+/* ID della chiave reCAPTCHA Enterprise (Google Cloud Fraud Defense) per App Check: senza, Gemini rifiuta le richieste.
+   È una chiave pubblica: nessuna chiave segreta va messa qui. */
+window.APP3D_RECAPTCHA = '';
