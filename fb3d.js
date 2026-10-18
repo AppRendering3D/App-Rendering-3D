@@ -188,6 +188,31 @@
     }
   };
 
+  /* ---------- AI: Gemini tramite Firebase AI Logic ---------- */
+  function blobB64(b) { return new Promise(function (res, rej) { var r = new FileReader(); r.onload = function () { res(String(r.result).split(',')[1]); }; r.onerror = function () { rej(r.error); }; r.readAsDataURL(b); }); }
+  async function gemini(prompt, o, asJson) {
+    o = o || {};
+    var parts = [{ text: prompt }];
+    for (var i = 0; i < (o.images || []).length; i++) { var b = o.images[i]; parts.push({ inline_data: { mime_type: b.type || 'image/jpeg', data: await blobB64(b) } }); }
+    var body = { contents: [{ role: 'user', parts: parts }] };
+    if (asJson) body.generationConfig = { responseMimeType: 'application/json' };
+    var model = window.APP3D_AI_MODEL || 'gemini-3.8-flash', r;
+    try {
+      r = await fetch('https://firebasevertexai.googleapis.com/v1beta/projects/' + CFG.projectId + '/models/' + model + ':generateContent', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': CFG.apiKey }, body: JSON.stringify(body), signal: o.signal });
+    } catch (e) { if (e && e.name === 'AbortError') throw { code: 'cancelled', message: 'Annullato' }; throw { code: 'network', message: 'Nessuna connessione' }; }
+    if (r.status === 429) throw { code: 'rate_limited', message: 'Troppe richieste' };
+    if (!r.ok) throw { code: 'error', message: 'Gemini ha risposto ' + r.status };
+    var d = await r.json(), c = d.candidates && d.candidates[0], txt = ((c && c.content && c.content.parts) || []).map(function (p) { return p.thought ? '' : (p.text || ''); }).join('');
+    if (!asJson) return txt;
+    try { return JSON.parse(txt.replace(/^```(json)?|```$/g, '').trim()); } catch (e) { throw { code: 'error', message: 'Risposta non leggibile' }; }
+  }
+  var SAMPLE = {
+    limits: function () { return Promise.resolve({ images: true }); },
+    text: function (prompt, o) { return gemini(prompt, o, false); },
+    json: function (prompt, o) { return gemini(prompt, o, true); }
+  };
+
   // le app chiedono le capacità come su Claude; qui rispondono dopo l'accesso
   window.claude = {
     use: function (name) {
@@ -195,6 +220,7 @@
         if (name === 'db') return DB;
         if (name === 'user') return USER;
         if (name === 'downloads') return DL;
+        if (name === 'sample' && window.APP3D_AI !== false) return SAMPLE;
         throw { code: 'not_declared', message: 'Non disponibile sul sito' };
       });
     }

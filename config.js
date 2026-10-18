@@ -13,3 +13,6 @@ window.APP3D_FIREBASE_CONFIG = {
 /* App che si aprono senza email e password (per ora nessuna; possibili: 'casa', 'bordo').
    Deve corrispondere alla funzione libera() in firestore.rules. */
 window.APP3D_LIBERE = [];
+
+/* Modello di Gemini usato dall'AI (Firebase › AI Logic). Se Google lo ritira, basta cambiare il nome qui. */
+window.APP3D_AI_MODEL = 'gemini-3.8-flash';

@@ -267,6 +267,30 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 #arch a.btn{text-decoration:none}
 @media (max-width:520px){#btnArch:not([hidden]) + .brand .mark{display:none}}
 .arch-empty{padding:18px;border:1px dashed var(--rule);border-radius:14px;color:var(--ink-2);background:var(--sheet)}
+/* fogli foto per parete */
+.overlay{position:fixed;inset:0;z-index:35;background:var(--paper);display:flex;flex-direction:column;padding-inline:16px;padding-block:calc(10px + env(safe-area-inset-top, 0px)) calc(12px + env(safe-area-inset-bottom, 0px));gap:10px}
+.ov-head{display:flex;align-items:center;gap:10px}
+.fv-title{flex:1;min-width:0;display:flex;flex-direction:column}
+.fv-title h2{margin:0;font-size:19px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fv-title span{font-size:12.5px;color:var(--ink-2);font-family:var(--font-num)}
+.ov-body{flex:1;min-height:0;display:flex;flex-direction:column;gap:10px}
+.ov-canvas{position:relative;flex:1 1 52%;min-height:220px;border:1px solid var(--rule);border-radius:12px;background:var(--board);overflow:hidden;touch-action:none}
+.ov-canvas canvas{position:absolute;inset:0;width:100%;height:100%}
+.ov-side{flex:1 1 48%;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:10px;padding-bottom:8px}
+@media (min-width:880px){.ov-body{flex-direction:row}.ov-side{flex:none;width:350px}}
+.ov-side>*{flex:none}
+.fv-seg{align-self:flex-start;max-width:100%}
+.fv-seg button:disabled{opacity:.4;cursor:default}
+.fv-list{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin}
+.fv-th{flex:none;width:112px;display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;border:1px solid var(--rule);background:var(--board);border-radius:10px;padding:6px;cursor:pointer;color:var(--ink)}
+.fv-th[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.fv-th img,.fv-th i{display:block;width:100%;height:64px;object-fit:cover;border-radius:6px;background:var(--sheet)}
+.fv-th b{font-size:13px}
+.fv-th small{font-size:11px;color:var(--ink-2)}
+.fv-nota{height:auto;min-height:44px;padding:8px 10px;font:inherit;font-size:15px;resize:vertical}
+.linkbtn{border:0;background:none;color:var(--accent);font:inherit;font-size:13.5px;font-weight:600;padding:4px 0;cursor:pointer;text-align:left}
+.lrow .flag:not(.w):not(.b){background:var(--accent-soft);color:var(--accent)}
+.lrow .flag.none{background:none;color:var(--ink-3)}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 @media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
 </style>
@@ -331,6 +355,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
   <input type="file" id="filePlan" accept="image/*" hidden>
   <input type="file" id="fileImport" accept=".json,application/json" hidden>
   <div id="arch" hidden><div class="in" id="archIn"></div></div>
+  <div id="fogli" class="overlay" hidden></div>
 </div>
 
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
@@ -444,12 +469,14 @@ const CATALOG = [
 ];
 const TYPE_NAMES = { divano3: 'Divano', divano2: 'Divano', angolare: 'Divano angolare', poltrona: 'Poltrona', mobiletv: 'Mobile TV', tavolino: 'Tavolino', libreria: 'Libreria', tappeto: 'Tappeto', cucina: 'Cucina lineare', cucinaL: 'Cucina ad angolo', isola: 'Isola', frigo: 'Frigorifero', pensile: 'Pensile', tavolo: 'Tavolo', tavolotondo: 'Tavolo rotondo', sedia: 'Sedia', letto: 'Letto', comodino: 'Comodino', armadio: 'Armadio', cassettiera: 'Cassettiera', scrivania: 'Scrivania', wc: 'WC', bidet: 'Bidet', lavabo: 'Lavabo', doccia: 'Doccia', vasca: 'Vasca', lavatrice: 'Lavatrice', porta: 'Porta', finestra: 'Finestra', portafinestra: 'Portafinestra', generico: 'Mobile', muro: 'Muro', elettrico: 'Punto elettrico', traccia: 'Traccia', idraulico: 'Punto idraulico' };
 const OPENINGS = new Set(['porta', 'finestra', 'portafinestra']);
+const FASI = { tracce: 'Tracce', impianti: 'Impianti', intonaco: 'Intonaco', finita: 'Finita', arredata: 'Arredata', altro: 'Altra fase' };
+const FASI_K = Object.keys(FASI);
 const FLAT = new Set(['tappeto']);
 const ELEC = new Set(['elettrico', 'traccia', 'idraulico']);  // punti e linee sui muri
 const SUBS = { presa: ['Presa', 'P'], interruttore: ['Interruttore', 'I'], luce: ['Punto luce', 'L'], tv: ['Presa TV', 'TV'], derivazione: ['Scatola di derivazione', 'D'], quadro: ['Quadro elettrico', 'Q'] };
 const IDRO = { fredda: ['Acqua fredda', 'F'], calda: ['Acqua calda', 'C'], scarico: ['Scarico', 'S'], lavatrice: ['Attacco lavatrice', 'LV'], gas: ['Gas', 'G'] };
 const PT_SUBS = it => it.t === 'idraulico' ? IDRO : SUBS;
-const LAYERS = { plan: 'Planimetria di sfondo', muri: 'Muri, porte e finestre', arredi: 'Arredi', el: 'Impianto elettrico', id: 'Impianto idraulico', quote: 'Quote e spazio libero', nomi: 'Nomi e misure delle stanze' };
+const LAYERS = { plan: 'Planimetria di sfondo', muri: 'Muri, porte e finestre', arredi: 'Arredi', el: 'Impianto elettrico', id: 'Impianto idraulico', quote: 'Quote e spazio libero', nomi: 'Nomi e misure delle stanze', foto: 'Foto sulle pareti (3D)' };
 const PRESETS = {
   tutto: ['Tutto', { plan: true, muri: true, arredi: true, el: true, id: true, quote: true, nomi: true }],
   arredo: ['Arredamento', { plan: false, muri: true, arredi: true, el: false, id: false, quote: true, nomi: true }],
@@ -532,6 +559,15 @@ function normalize(p) {
   out.livelli = {}; for (const k of Object.keys(LAYERS)) if (k !== 'plan') out.livelli[k] = lv[k] !== undefined ? lv[k] !== false : (k === 'el' ? p.vedElettrico !== false : true);
   out.vedElettrico = out.livelli.el;
   out.idee = (Array.isArray(p.idee) ? p.idee : []).filter(x => x && typeof x.testo === 'string').map(x => ({ id: String(x.id || uid()), testo: x.testo.slice(0, 2000), quando: typeof x.quando === 'string' ? x.quando : null }));
+  const okKey = k => /^(r:[^:]+:[nsoe]|m:[^:]+:[ab])$/.test(k);
+  out.fogli = (Array.isArray(p.fogli) ? p.fogli : []).filter(f => f && typeof f.src === 'string' && okKey(String(f.par))).map(f => {
+    const r = f.rett && num(f.rett.w) > 0 && num(f.rett.h) > 0 ? { x: num(f.rett.x) || 0, y: num(f.rett.y) || 0, w: num(f.rett.w), h: num(f.rett.h) } : null;
+    return { id: String(f.id || uid()), par: String(f.par), fase: FASI[f.fase] ? f.fase : 'tracce', nome: String(f.nome || '').slice(0, 40), nota: String(f.nota || '').slice(0, 1000), data: typeof f.data === 'string' ? f.data : null,
+      src: f.src, foto: r && typeof f.foto === 'string' ? f.foto : null, rett: typeof f.foto === 'string' ? r : null, q: Array.isArray(f.q) && f.q.length === 4 ? f.q.map(x => [num(x[0]) || 0, num(x[1]) || 0]) : null };
+  });
+  out.pareti3d = {};
+  const p3 = p.pareti3d && typeof p.pareti3d === 'object' ? p.pareti3d : {};
+  for (const [k, id] of Object.entries(p3)) if (out.fogli.some(f => f.id === id && f.par === k && f.rett)) out.pareti3d[k] = id;
   const pl = p.planimetria;
   if (pl && typeof pl.src === 'string' && num(pl.iw) > 0 && num(pl.ih) > 0) {
     const op = num(pl.op);
@@ -880,7 +916,11 @@ function avgColor(img) {
     const n = d.length / 4; return '#' + [r / n, gg / n, b / n].map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
   } catch (e) { return '#C8C2B8'; }
 }
-function usedPaths() { const s = new Set(); for (const it of P().arredi) if (it.foto) s.add(it.foto); if (P().planimetria) s.add(P().planimetria.src); return s; }
+function usedPaths(light) { // light: solo quelle da avere subito all'apertura (le foto delle pareti arrivano quando servono)
+  const s = new Set(); for (const it of P().arredi) if (it.foto) s.add(it.foto); if (P().planimetria) s.add(P().planimetria.src);
+  for (const f of P().fogli) { if (light && P().pareti3d[f.par] !== f.id) continue; if (!light) s.add(f.src); if (f.foto) s.add(f.foto); }
+  return s;
+}
 function markRemoved(path) {
   if (!path || path.startsWith('foto/cat-')) return; // le foto del catalogo restano sempre
   if (!S.photos.has(path)) photoBlob(path); // tieni una copia per poter annullare
@@ -899,7 +939,7 @@ function travel(d) {
   const ni = hi + d; if (ni < 0 || ni >= hist.length) return;
   hi = ni; S.project = normalize(JSON.parse(hist[hi]));
   if (S.sel && !(S.sel.k === 'item' ? itemById(S.sel.id) : roomById(S.sel.id))) S.sel = null;
-  updUndo(); changed({ commit: false }); renderPanel(true);
+  updUndo(); changed({ commit: false }); renderPanel(true); if (S.fv) renderFogli();
 }
 
 /* ================= modifiche e salvataggio ================= */
@@ -1778,6 +1818,7 @@ function buildWalls(H) {
     wg.position.set(it.x, 0, it.y); wg.userData.id = it.id;
     g.add(wg); T.items.set(it.id, wg);
   }
+  addWallPhotos(g, H);
   return g;
 }
 function rebuild3D() {
@@ -2090,7 +2131,7 @@ function itemHTML(it) {
   }
   o += `<div class="cat-label">Misure</div>`;
   if (op) o += `<div class="fields">${numField('f-w', 'Larghezza', 'w', fmt(it.w))}${numField('f-h', 'Altezza', 'h', fmt(it.h))}${numField('f-z', 'Da terra', 'z', fmt(it.z))}</div>`;
-  else if (wall) o += `<div class="fields">${numField('f-w', 'Lunghezza', 'w', fmt(it.w))}${numField('f-d', 'Spessore', 'd', fmt(it.d))}${numField('f-h', 'Altezza', 'h', fmt(it.h))}</div>`;
+  else if (wall) o += `<div class="fields">${numField('f-w', 'Lunghezza', 'w', fmt(it.w))}${numField('f-d', 'Spessore', 'd', fmt(it.d))}${numField('f-h', 'Altezza', 'h', fmt(it.h))}</div><div class="cat-label">Foto delle pareti</div>${faceButtons(facesOfWall(it))}`;
   else o += `<div class="fields">${numField('f-w', 'Larghezza', 'w', fmt(it.w))}${numField('f-d', 'Profondità', 'd', fmt(it.d))}${numField('f-h', 'Altezza', 'h', fmt(it.h))}</div>`;
   if (it.t === 'angolare' || it.t === 'cucinaL') o += `<div class="fields two">${numField('f-arm', it.t === 'angolare' ? 'Profondità seduta' : 'Profondità piano', 'arm', fmt(it.arm || 60))}</div>`;
   o += `<div class="cat-label">Rotazione</div><div class="rot"><button class="btn sm" data-act="rot" data-v="-90" aria-label="Ruota di 90 gradi a sinistra">${I.rl}90°</button><button class="btn sm" data-act="rot" data-v="-15" aria-label="Ruota di 15 gradi a sinistra">−15°</button><span class="val" id="f-rotv">${norm(it.rot)}°</span><button class="btn sm" data-act="rot" data-v="15" aria-label="Ruota di 15 gradi a destra">+15°</button><button class="btn sm" data-act="rot" data-v="90" aria-label="Ruota di 90 gradi a destra">90°${I.rr}</button></div>`;
@@ -2127,6 +2168,7 @@ function roomHTML(r) {
   o += `<div class="field"><label for="r-pav">Pavimento</label><select id="r-pav" class="select" data-rf="pav">${Object.entries(PAV).map(([k, l]) => `<option value="${k}"${r.pav === k ? ' selected' : ''}>${l}</option>`).join('')}</select></div>`;
   o += `<label class="check"><input id="r-muri" type="checkbox" data-rf="muri" ${r.muri !== false ? 'checked' : ''}> Muri automatici intorno alla stanza</label>`;
   o += `<label class="check"><input id="r-lbl" type="checkbox" data-rf="lbl" ${r.lbl !== false ? 'checked' : ''}> Mostra il nome nella pianta</label>`;
+  o += `<div class="cat-label">Foto delle pareti</div>${faceButtons(facesOfRoom(r))}`;
   o += `<div class="cat-label">Posizione</div><div class="fields two">${numField('r-x', 'X', 'x', fmt(r.x), 'cm', 'data-rf')}${numField('r-y', 'Y', 'y', fmt(r.y), 'cm', 'data-rf')}</div>`;
   o += `<p class="note">Trascina la stanza nella pianta per spostarla insieme ai suoi mobili: si allinea alle altre lasciando lo spessore del muro. Tira i cerchi agli angoli per cambiarne le misure.</p>`;
   o += `<div class="row-btns"><button class="btn" data-act="enterRoom">Guardala in 3D</button><button class="btn danger${S.armed === 'delRoom' ? ' armed' : ''}" data-act="delRoom">${S.armed === 'delRoom' ? 'Tocca ancora per eliminare' : 'Elimina stanza'}</button></div>`;
@@ -2222,6 +2264,7 @@ document.getElementById('app').addEventListener('click', e => {
     case 'zoomOut': { const { W, H } = stageSize(); zoomAt(1 / 1.35, W / 2, H / 2); break; }
     case 'fit': fitView(); break;
     case 'add': addItem(b.dataset.t, b.dataset.n); break;
+    case 'fvOpen': openFogli(b.dataset.k); break;
     case 'addPhoto': pickPhoto({ mode: 'new' }); break;
     case 'photoPick': if (sel && sel.k === 'item') pickPhoto({ mode: 'item', id: sel.o.id }); break;
     case 'photoDel': if (sel && sel.k === 'item') { markRemoved(sel.o.foto); sel.o.foto = null; if (S.ai && S.ai.id === sel.o.id) S.ai = null; changed(); renderPanel(true); } break;
@@ -2367,6 +2410,7 @@ $('#fileFoto').addEventListener('change', async e => {
   const target = photoTarget; photoTarget = null;
   let img, url;
   try { url = URL.createObjectURL(file); img = await loadImg(url); } catch (er) { toast('Non riesco ad aprire questa foto'); return; }
+  if (target.mode === 'foglio') { await fvNewSheet(img, file); URL.revokeObjectURL(url); return; }
   const small = await toJpeg(img, 1024, .82), big = await toJpeg(img, 1600, .85);
   URL.revokeObjectURL(url);
   if (!small.blob) { toast('Non riesco ad aprire questa foto'); return; }
@@ -2435,6 +2479,443 @@ $('#filePlan').addEventListener('change', async e => {
   startCalib();
 });
 
+/* ================= fogli foto per parete ================= */
+/* Ogni faccia di parete ha una pila di foto, una per fase (tracce, impianti, intonaco…).
+   Raddrizzata con 4 tocchi, la foto è in centimetri veri: si confronta con le altre fasi,
+   si misura col metro e si mettono i punti dell'impianto nel posto esatto. */
+const faseNome = f => f.fase === 'altro' && f.nome ? f.nome : FASI[f.fase] || 'Foto';
+const DIRS = { n: 'in alto', s: 'in basso', o: 'a sinistra', e: 'a destra' };
+const dirOf = (nx, ny) => Math.abs(ny) >= Math.abs(nx) ? (ny > 0 ? 'in basso' : 'in alto') : (nx > 0 ? 'a destra' : 'a sinistra');
+
+/* una faccia vista da chi le sta davanti: f = cm dal bordo sinistro, z = cm dal piede della parete */
+function wallFace(key) {
+  const [k, id, s] = String(key).split(':'), p = P();
+  let F = null;
+  if (k === 'r') {
+    const r = roomById(id); if (!r || !DIRS[s]) return null; const t = p.spessore;
+    F = {
+      n: { o: 'h', c: r.y - t / 2, line: r.y, left: r.x, dir: 1, L: r.w, nx: 0, ny: 1 },
+      s: { o: 'h', c: r.y + r.h + t / 2, line: r.y + r.h, left: r.x + r.w, dir: -1, L: r.w, nx: 0, ny: -1 },
+      o: { o: 'v', c: r.x - t / 2, line: r.x, left: r.y + r.h, dir: -1, L: r.h, nx: 1, ny: 0 },
+      e: { o: 'v', c: r.x + r.w + t / 2, line: r.x + r.w, left: r.y, dir: 1, L: r.h, nx: -1, ny: 0 },
+    }[s];
+    Object.assign(F, { key, kind: 'r', room: r, t, z0: 0, H: p.altezza, ortho: true, nome: 'Parete ' + DIRS[s], dove: r.nome, rot: { n: 0, s: 180, o: 270, e: 90 }[s], off: r.muri === false });
+    F.pt = f => F.o === 'h' ? [F.left + F.dir * f, F.line] : [F.line, F.left + F.dir * f];
+  } else if (k === 'm') {
+    const it = itemById(id); if (!it || it.t !== 'muro' || (s !== 'a' && s !== 'b')) return null;
+    const a = it.rot * Math.PI / 180, ux = Math.cos(a), uy = Math.sin(a), sg = s === 'b' ? -1 : 1;
+    const nx = -uy * sg, ny = ux * sg, fx = it.x + nx * it.d / 2, fy = it.y + ny * it.d / 2, r = norm(it.rot);
+    const room = roomAt(fx + nx * 20, fy + ny * 20);
+    F = { key, kind: 'm', item: it, t: it.d, z0: it.z || 0, H: it.h, L: it.w, nx, ny, ortho: r % 90 === 0, rot: norm(it.rot + (sg > 0 ? 0 : 180)),
+      nome: (it.n && it.n !== 'Muro' ? it.n : 'Muro') + ' · lato ' + dirOf(nx, ny), dove: room ? room.nome : '' };
+    F.pt = f => { const al = sg * (f - it.w / 2); return [fx + ux * al, fy + uy * al]; };
+    if (F.ortho) { F.o = r % 180 === 0 ? 'h' : 'v'; F.c = F.o === 'h' ? it.y : it.x; }
+  }
+  if (!F) return null;
+  const p0 = F.pt(0), p1 = F.pt(1);
+  F.ux = p1[0] - p0[0]; F.uy = p1[1] - p0[1]; // verso destra per chi guarda
+  F.toF = (x, y) => ({ f: (x - p0[0]) * F.ux + (y - p0[1]) * F.uy, d: (x - p0[0]) * F.nx + (y - p0[1]) * F.ny });
+  return F;
+}
+function facesOfRoom(r) { return ['n', 'e', 's', 'o'].map(s => 'r:' + r.id + ':' + s); }
+function facesOfWall(it) { return ['a', 'b'].map(s => 'm:' + it.id + ':' + s); }
+const sheetsOf = key => P().fogli.filter(f => f.par === key).sort((a, b) => (FASI_K.indexOf(a.fase) - FASI_K.indexOf(b.fase)) || String(a.data).localeCompare(String(b.data)));
+function faceButtons(keys) {
+  return `<div class="list">${keys.map(k => {
+    const F = wallFace(k); if (!F) return '';
+    const n = sheetsOf(k).length, in3d = P().pareti3d[k];
+    return `<button class="lrow" data-act="fvOpen" data-k="${esc(k)}"><span class="mid"><b>${esc(F.nome)}</b><small>${fmt(F.L)} × ${fmt(F.H)} cm${F.kind === 'm' && F.dove ? ' · verso ' + esc(F.dove) : ''}${in3d ? ' · foto nel 3D' : ''}</small></span><span class="flag${n ? '' : ' none'}">${n ? n + (n === 1 ? ' foto' : ' foto') : 'nessuna'}</span></button>`;
+  }).join('')}</div>`;
+}
+
+/* ---------- 3D: la foto scelta sopra la parete ---------- */
+function addWallPhotos(g, H) {
+  if (LV().foto === false) return;
+  const p = P();
+  for (const [key, sid] of Object.entries(p.pareti3d)) {
+    const sh = p.fogli.find(f => f.id === sid && f.par === key); if (!sh || !sh.foto || !sh.rett) continue;
+    const F = wallFace(key); if (!F || F.off) continue;
+    const url = photoURL(sh.foto);
+    if (!url) { photoBlob(sh.foto).then(b => { if (b) { T.dirty = true; request3D(); } }); continue; }
+    const tex = new THREE.Texture(); tex.encoding = THREE.sRGBEncoding; tex.anisotropy = Math.min(8, T.maxAniso || 1);
+    let pr = T.imgs.get(url); if (!pr) { pr = loadImg(url); T.imgs.set(url, pr); }
+    pr.then(img => { tex.image = img; tex.needsUpdate = true; render3D(); }).catch(() => {});
+    const m = new THREE.MeshStandardMaterial({ map: tex, roughness: .9, side: THREE.DoubleSide }); m.userData.ownMap = true;
+    const R = sh.rett, f0 = clamp(R.x, 0, F.L), f1 = clamp(R.x + R.w, 0, F.L), zb = F.z0 + R.y, zt = F.z0 + R.y + R.h;
+    let pieces;
+    if (F.ortho) {
+      const ops = p.arredi.filter(o => OPENINGS.has(o.t)), ax = F.o === 'h' ? 0 : 1, w0 = F.pt(f0)[ax], w1 = F.pt(f1)[ax];
+      const s = { o: F.o, c: F.c, t: F.t, a0: Math.min(w0, w1), a1: Math.max(w0, w1), z0: Math.max(zb, F.z0), z1: Math.min(zt, F.z0 + F.H) };
+      const wa0 = F.pt(0)[ax], sgn = F.pt(1)[ax] - wa0;
+      pieces = wallPieces(s, ops, H).map(([a0, a1, y0, y1]) => [(a0 - wa0) / sgn, (a1 - wa0) / sgn, y0, y1]);
+    } else pieces = [[f0, f1, Math.max(zb, F.z0), Math.min(zt, F.z0 + F.H, H)]];
+    const pos = [], uv = [], off = .6;
+    const P3 = (f, z) => { const q = F.pt(f); pos.push(q[0] + F.nx * off, z, q[1] + F.ny * off); uv.push((f - R.x) / R.w, (z - zb) / R.h); };
+    for (const [fa, fb, y0, y1] of pieces) {
+      if (y1 - y0 < .5 || Math.abs(fb - fa) < .5) continue;
+      P3(fa, y0); P3(fb, y0); P3(fb, y1); P3(fa, y0); P3(fb, y1); P3(fa, y1);
+    }
+    if (!pos.length) continue;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); geo.computeVertexNormals();
+    const me = new THREE.Mesh(geo, m); me.receiveShadow = true; g.add(me);
+  }
+}
+
+/* ---------- visore ---------- */
+const fvEl = $('#fogli');
+const FVI = new Map(); // url → immagine caricata
+function fvImg(path) {
+  const url = photoURL(path);
+  if (!url) { photoBlob(path).then(b => { if (b && S.fv) { renderFogli(); } }); return null; }
+  let e = FVI.get(url);
+  if (!e) { e = { img: null }; FVI.set(url, e); loadImg(url).then(i => { e.img = i; if (S.fv) drawFv(); }).catch(() => {}); }
+  return e.img;
+}
+function openFogli(key) {
+  const F = wallFace(key); if (!F) return;
+  const list = sheetsOf(key);
+  S.fv = { key, sel: (list.find(f => f.foto) || list[list.length - 1] || {}).id || null, mode: 'look', over: null, op: .5, pts: true, m: { a: null, b: null }, vp: null, rc: null, pend: null, addOpen: !list.length, armed: null };
+  if (S.metroOn) setMetro(false);
+  list.forEach(f => { photoBlob(f.foto || f.src); });
+  fvEl.hidden = false; renderFogli();
+}
+function closeFogli() { if (!S.fv) return; S.fv = null; fvEl.hidden = true; fvEl.innerHTML = ''; renderPanel(true); }
+const fvSheet = () => S.fv && P().fogli.find(f => f.id === S.fv.sel && f.par === S.fv.key) || null;
+function renderFogli() {
+  const v = S.fv; if (!v) return;
+  const F = wallFace(v.key); if (!F) { closeFogli(); return; }
+  if (v.rc) { renderRect(F); return; }
+  const list = sheetsOf(v.key), sh = fvSheet(), rect = list.filter(f => f.rett && f.foto);
+  if (v.sel && !sh) v.sel = (list[0] || {}).id || null;
+  const cur = fvSheet(), raw = cur && !cur.rett, canTap = !raw;
+  if (!canTap && v.mode !== 'look') v.mode = 'look';
+  let side = '';
+  side += `<div class="seg fv-seg" role="tablist">${[['look', 'Guarda'], ['metro', 'Misura'], ['punto', 'Metti un punto']].map(([k, l]) => `<button role="tab" aria-selected="${v.mode === k}" data-act="fvMode" data-v="${k}"${!canTap && k !== 'look' ? ' disabled' : ''}>${l}</button>`).join('')}</div>`;
+  side += `<div id="fvMsg">${fvMsgHTML(F)}</div>`;
+  side += `<div class="cat-label">Foto di questa parete</div>`;
+  if (list.length) side += `<div class="fv-list">${list.map(f => `<button class="fv-th" data-act="fvSel" data-id="${f.id}" aria-pressed="${f.id === v.sel}">${(() => { const u = photoURL(f.foto || f.src); return u ? `<img src="${esc(u)}" alt="">` : '<i></i>'; })()}<b>${esc(faseNome(f))}</b><small>${f.data ? esc(new Date(f.data).toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: '2-digit' })) : ''}${f.rett ? '' : ' · da raddrizzare'}${P().pareti3d[v.key] === f.id ? ' · 3D' : ''}</small></button>`).join('')}</div>`;
+  else side += `<p class="note">Ancora nessuna foto. Fotografa la parete il più possibile di fronte, con tutti e quattro gli angoli dentro l'inquadratura.</p>`;
+  if (v.addOpen) side += `<div class="banner"><p><b>Che fase è la nuova foto?</b></p><div class="chips">${FASI_K.map(k => `<button class="chipbtn" data-act="fvAdd" data-v="${k}">${FASI[k]}</button>`).join('')}</div></div>`;
+  else side += `<button class="btn primary" data-act="fvAddOpen">${I.cam}Aggiungi una foto</button>`;
+  if (cur) {
+    side += `<div class="cat-label">Foto scelta</div>`;
+    side += `<div class="field"><label for="fv-fase">Fase</label><select id="fv-fase" class="select" data-fv="fase">${FASI_K.map(k => `<option value="${k}"${cur.fase === k ? ' selected' : ''}>${FASI[k]}</option>`).join('')}</select></div>`;
+    if (cur.fase === 'altro') side += `<div class="field"><label for="fv-nome">Nome della fase</label><input id="fv-nome" class="text" data-fv="nome" autocomplete="off" value="${esc(cur.nome || '')}" placeholder="es. Massetto"></div>`;
+    side += `<div class="field"><label for="fv-nota">Nota</label><textarea id="fv-nota" class="text fv-nota" data-fv="nota" placeholder="Facoltativa">${esc(cur.nota || '')}</textarea></div>`;
+    if (cur.rett) side += `<label class="check"><input type="checkbox" data-fv="in3d" ${P().pareti3d[v.key] === cur.id ? 'checked' : ''}> Mostra questa foto sulla parete nel 3D</label>`;
+    side += `<div class="row-btns"><button class="btn${raw ? ' primary' : ''}" data-act="fvRect">${raw ? 'Raddrizza la foto' : 'Raddrizza di nuovo'}</button><button class="btn danger${v.armed === 'del' ? ' armed' : ''}" data-act="fvDel">${v.armed === 'del' ? 'Tocca ancora per eliminare' : 'Elimina foto'}</button></div>`;
+    if (!raw && rect.length > 1) {
+      side += `<div class="cat-label">Confronta con un'altra fase</div><div class="chips">${rect.filter(f => f.id !== cur.id).map(f => `<button class="chipbtn" data-act="fvOver" data-id="${f.id}" aria-pressed="${v.over === f.id}">${esc(faseNome(f))}</button>`).join('')}</div>`;
+      if (v.over) side += `<div class="field"><label for="fv-op">Scorri per vedere una o l'altra</label><input id="fv-op" type="range" min="0" max="100" value="${Math.round(v.op * 100)}" data-fv="op"></div>`;
+    }
+  }
+  fvEl.innerHTML = `<div class="ov-head"><button class="icon-btn" data-act="fvClose" aria-label="Torna alla casa"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button><div class="fv-title"><h2>${esc(F.nome)}</h2><span>${esc(F.dove ? F.dove + ' · ' : '')}${fmt(F.L)} × ${fmt(F.H)} cm</span></div></div>
+    <div class="ov-body"><div class="ov-canvas" id="fvBox"><canvas id="fvCv"></canvas></div><div class="ov-side">${side}</div></div>`;
+  bindFv(); drawFv();
+}
+function fvMsgHTML(F) {
+  const v = S.fv, cur = fvSheet();
+  if (cur && !cur.rett) return `<p class="note">Questa foto non è ancora raddrizzata: raddrizzala per misurare, confrontarla con le altre fasi e metterci i punti.</p>`;
+  if (v.mode === 'metro') {
+    const m = v.m;
+    if (!m.a) return `<p class="note"><b>Misura.</b> Tocca il primo punto sulla parete.</p>`;
+    if (!m.b) return `<p class="note"><b>Da ${fmt(m.a.f)} cm dal bordo sinistro, ${fmt(m.a.z)} cm da terra.</b> Ora tocca il secondo punto.</p>`;
+    const dx = Math.abs(m.b.f - m.a.f), dz = Math.abs(m.b.z - m.a.z), d = Math.hypot(dx, dz);
+    return `<div class="measure">${fmt(d)} cm</div><p class="note">${dx > 1 && dz > 1 ? `In orizzontale ${fmt(dx)}, in verticale ${fmt(dz)}. ` : ''}Il primo punto è a ${fmt(m.a.f)} cm dal bordo sinistro e ${fmt(m.a.z)} cm da terra.</p><div class="row-btns"><button class="btn sm primary" data-act="fvMetroIdea">Aggiungi alle idee</button><button class="btn sm" data-act="fvMetroNew">Nuova misura</button></div>`;
+  }
+  if (v.mode === 'punto') {
+    if (!v.pend) return `<p class="note"><b>Tocca dove c'è la presa o il tubo.</b> Lo metto anche nella pianta, all'altezza giusta.</p>`;
+    const opts = Object.entries(SUBS).map(([k, x]) => `<option value="elettrico:${k}">${x[0]}</option>`).join('') + Object.entries(IDRO).map(([k, x]) => `<option value="idraulico:${k}">${x[0]}</option>`).join('');
+    return `<div class="banner"><p><b>Nuovo punto</b> a ${fmt(v.pend.f)} cm dal bordo sinistro.</p><div class="fields two"><div class="field"><label for="fv-pt">Tipo</label><select id="fv-pt" class="select">${opts.replace(`value="${v.pendT || 'elettrico:presa'}"`, `value="${v.pendT || 'elettrico:presa'}" selected`)}</select></div>${numField('fv-pz', 'Altezza da terra', '', fmt(v.pend.z), 'cm', 'data-fvz')}</div><div class="row-btns"><button class="btn sm primary" data-act="fvPtAdd">Metti il punto</button><button class="btn sm" data-act="fvPtNo">Annulla</button></div></div>`;
+  }
+  return `<p class="note">Il riquadro è la parete con le misure vere. Due dita per ingrandire.</p>`;
+}
+function fvView() {
+  const box = $('#fvBox'), cvF = $('#fvCv'); if (!box || !cvF) return null;
+  const W = box.clientWidth, H = box.clientHeight, dpr = Math.min(2, devicePixelRatio || 1);
+  if (cvF.width !== Math.round(W * dpr) || cvF.height !== Math.round(H * dpr)) { cvF.width = Math.round(W * dpr); cvF.height = Math.round(H * dpr); }
+  return { W, H, dpr, cvF };
+}
+/* coordinate della parete (f, z) ↔ schermo */
+function fvFit(F, W, H) { const s = Math.min((W - 56) / F.L, (H - 44) / F.H); return { s, tx: (W - F.L * s) / 2 + 8, ty: (H - F.H * s) / 2 - 6 }; }
+const fvToS = (vp, F, f, z) => [vp.tx + f * vp.s, vp.ty + (F.H - z) * vp.s];
+const fvToW = (vp, F, x, y) => ({ f: (x - vp.tx) / vp.s, z: F.H - (y - vp.ty) / vp.s });
+function fvPoints(F) {
+  const out = [];
+  for (const it of P().arredi) {
+    if (!ELEC.has(it.t) && !OPENINGS.has(it.t)) continue;
+    const q = F.toF(it.x, it.y);
+    if (OPENINGS.has(it.t)) { if (!F.ortho || Math.abs(q.d + F.t / 2) > F.t / 2 + 3) continue; const horiz = norm(it.rot) % 180 === 0; if (horiz !== (F.o === 'h')) continue; }
+    else if (Math.abs(q.d) > 3) continue;
+    if (q.f < -2 || q.f > F.L + 2) continue;
+    out.push({ it, f: q.f, z: (it.z || 0) - F.z0 });
+  }
+  return out;
+}
+function drawFv() {
+  const v = S.fv; if (!v || v.rc) return;
+  const F = wallFace(v.key), vw = fvView(); if (!F || !vw) return;
+  const { W, H, dpr, cvF } = vw, c = cvF.getContext('2d'), cur = fvSheet();
+  c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, W, H);
+  const ink = tok('--ink'), ink3 = tok('--ink-3'), acc = tok('--accent'), rule = tok('--rule');
+  if (cur && !cur.rett) { // foto non raddrizzata: si guarda e basta
+    const img = fvImg(cur.src); if (!img) { c.fillStyle = ink3; c.font = '600 13px system-ui'; c.textAlign = 'center'; c.fillText('Carico la foto…', W / 2, H / 2); return; }
+    const s = Math.min(W / img.naturalWidth, H / img.naturalHeight) * .96; c.drawImage(img, (W - img.naturalWidth * s) / 2, (H - img.naturalHeight * s) / 2, img.naturalWidth * s, img.naturalHeight * s); return;
+  }
+  if (!v.vp || v.vp.F !== F.L + 'x' + F.H) { v.vp = fvFit(F, W, H); v.vp.F = F.L + 'x' + F.H; }
+  const vp = v.vp, [x0, y0] = fvToS(vp, F, 0, F.H), [x1, y1] = fvToS(vp, F, F.L, 0);
+  c.fillStyle = tok('--sheet'); c.fillRect(x0, y0, x1 - x0, y1 - y0);
+  // griglia ogni 50 cm
+  c.strokeStyle = tok('--grid'); c.lineWidth = 1; c.beginPath();
+  for (let f = 50; f < F.L; f += 50) { const x = fvToS(vp, F, f, 0)[0]; c.moveTo(x, y0); c.lineTo(x, y1); }
+  for (let z = 50; z < F.H; z += 50) { const y = fvToS(vp, F, 0, z)[1]; c.moveTo(x0, y); c.lineTo(x1, y); }
+  c.stroke();
+  const drawSheet = (sh, alpha) => {
+    const img = fvImg(sh.foto); if (!img) return;
+    const R = sh.rett, [sx, sy] = fvToS(vp, F, R.x, R.y + R.h); c.globalAlpha = alpha; c.drawImage(img, sx, sy, R.w * vp.s, R.h * vp.s); c.globalAlpha = 1;
+  };
+  c.save(); c.beginPath(); c.rect(x0, y0, x1 - x0, y1 - y0); c.clip();
+  if (cur) drawSheet(cur, 1);
+  const ov = v.over && P().fogli.find(f => f.id === v.over && f.rett);
+  if (ov) drawSheet(ov, v.op);
+  c.restore();
+  c.strokeStyle = ink; c.lineWidth = 2; c.strokeRect(x0, y0, x1 - x0, y1 - y0);
+  // quote della parete
+  c.fillStyle = ink3; c.font = '600 11px ' + tok('--font-num'); c.textAlign = 'center'; c.textBaseline = 'top';
+  c.fillText(fmt(F.L) + ' cm', (x0 + x1) / 2, y1 + 6);
+  c.save(); c.translate(x0 - 8, (y0 + y1) / 2); c.rotate(-Math.PI / 2); c.textBaseline = 'bottom'; c.fillText(fmt(F.H) + ' cm', 0, 0); c.restore();
+  // prese, attacchi, tracce, porte e finestre già nella pianta
+  const pts = v.pts ? fvPoints(F) : [];
+  v.snaps = [];
+  for (const { it, f, z } of pts) {
+    if (OPENINGS.has(it.t)) {
+      const [ax, ay] = fvToS(vp, F, f - it.w / 2, z + it.h), [bx, by] = fvToS(vp, F, f + it.w / 2, z);
+      c.setLineDash([5, 4]); c.strokeStyle = ink3; c.lineWidth = 1.5; c.strokeRect(ax, ay, bx - ax, by - ay); c.setLineDash([]);
+      v.snaps.push({ f: f - it.w / 2, z }, { f: f + it.w / 2, z }, { f: f - it.w / 2, z: z + it.h }, { f: f + it.w / 2, z: z + it.h }); continue;
+    }
+    const col = tok(it.t === 'idraulico' ? '--water' : '--elec'), [px, py] = fvToS(vp, F, f, z);
+    c.strokeStyle = col; c.fillStyle = col;
+    if (it.t === 'traccia') { const a = fvToS(vp, F, f - it.w / 2, z), b = fvToS(vp, F, f + it.w / 2, z); c.lineWidth = 3; c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke(); continue; }
+    const down = it.tr === 'giu' || it.tr === 'entrambe', up = it.tr === 'su' || it.tr === 'entrambe';
+    c.lineWidth = 2; c.setLineDash([6, 4]); c.beginPath();
+    if (down) { c.moveTo(px, py); c.lineTo(px, fvToS(vp, F, f, 0)[1]); }
+    if (up) { c.moveTo(px, py); c.lineTo(px, fvToS(vp, F, f, F.H)[1]); }
+    c.stroke(); c.setLineDash([]);
+    const r = Math.max(5, Math.min(10, it.w / 2 * vp.s));
+    c.fillStyle = tok('--sheet'); c.lineWidth = 2.5; c.beginPath(); c.arc(px, py, r, 0, Math.PI * 2); c.fill(); c.stroke();
+    c.fillStyle = col; c.font = '700 11px ' + tok('--font-num'); c.textAlign = 'left'; c.textBaseline = 'middle';
+    c.fillText(ptSym(it) + fmt(it.z), px + r + 4, py);
+    v.snaps.push({ f, z });
+  }
+  // metro
+  const m = v.m, dot = (q, lab) => { const [px, py] = fvToS(vp, F, q.f, q.z); c.fillStyle = acc; c.beginPath(); c.arc(px, py, 5, 0, Math.PI * 2); c.fill(); };
+  if (v.mode === 'metro' && m.a) {
+    dot(m.a);
+    if (m.b) {
+      const a = fvToS(vp, F, m.a.f, m.a.z), b = fvToS(vp, F, m.b.f, m.b.z);
+      c.strokeStyle = acc; c.lineWidth = 2; c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke(); dot(m.b);
+      const d = Math.hypot(m.b.f - m.a.f, m.b.z - m.a.z);
+      c.font = '700 13px ' + tok('--font-num'); c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineWidth = 4; c.strokeStyle = tok('--board'); c.strokeText(fmt(d) + ' cm', (a[0] + b[0]) / 2, (a[1] + b[1]) / 2 - 12); c.fillStyle = acc; c.fillText(fmt(d) + ' cm', (a[0] + b[0]) / 2, (a[1] + b[1]) / 2 - 12);
+    }
+  }
+  if (v.mode === 'punto' && v.pend) { const [px, py] = fvToS(vp, F, v.pend.f, v.pend.z); c.strokeStyle = acc; c.lineWidth = 2; c.beginPath(); c.arc(px, py, 9, 0, Math.PI * 2); c.moveTo(px - 14, py); c.lineTo(px + 14, py); c.moveTo(px, py - 14); c.lineTo(px, py + 14); c.stroke(); }
+  if (!cur) { c.fillStyle = ink3; c.font = '600 13px system-ui'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('Aggiungi una foto di questa parete', (x0 + x1) / 2, (y0 + y1) / 2); }
+}
+function bindFv() {
+  const cvF = $('#fvCv'); if (!cvF) return;
+  const ptrs = new Map(); let g = null;
+  const loc = e => { const r = cvF.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  const zoom = (k, x, y) => { const vp = S.fv.vp; if (!vp) return; const ns = clamp(vp.s * k, .2, 40); vp.tx = x - (x - vp.tx) * ns / vp.s; vp.ty = y - (y - vp.ty) * ns / vp.s; vp.s = ns; drawFv(); };
+  cvF.onpointerdown = e => {
+    try { cvF.setPointerCapture(e.pointerId); } catch (er) {}
+    ptrs.set(e.pointerId, loc(e));
+    if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; g = { k: 'pinch', d: Math.hypot(a[0] - b[0], a[1] - b[1]) || 1, m: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2] }; return; }
+    const [x, y] = loc(e); g = { k: 'pan', x0: x, y0: y, lx: x, ly: y, moved: false };
+  };
+  cvF.onpointermove = e => {
+    if (!ptrs.has(e.pointerId) || !g || !S.fv || !S.fv.vp) return;
+    ptrs.set(e.pointerId, loc(e));
+    if (g.k === 'pinch') { if (ptrs.size < 2) return; const [a, b] = [...ptrs.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]), m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; S.fv.vp.tx += m[0] - g.m[0]; S.fv.vp.ty += m[1] - g.m[1]; g.m = m; zoom(d / g.d, m[0], m[1]); g.d = d; return; }
+    const [x, y] = loc(e);
+    if (!g.moved && Math.hypot(x - g.x0, y - g.y0) < 6) return;
+    g.moved = true; S.fv.vp.tx += x - g.lx; S.fv.vp.ty += y - g.ly; g.lx = x; g.ly = y; drawFv();
+  };
+  const end = e => {
+    if (!ptrs.has(e.pointerId)) return; ptrs.delete(e.pointerId);
+    if (!g) return; if (g.k === 'pinch') { if (!ptrs.size) g = null; return; }
+    const gg = g; g = null; if (!gg.moved) fvTap(gg.x0, gg.y0);
+  };
+  cvF.onpointerup = end; cvF.onpointercancel = end;
+  cvF.onwheel = e => { e.preventDefault(); const [x, y] = loc(e); zoom(Math.exp(-e.deltaY * .0015), x, y); };
+}
+function fvTap(x, y) {
+  const v = S.fv; if (!v || !v.vp || v.mode === 'look') return;
+  const F = wallFace(v.key); if (!F) return;
+  let q = fvToW(v.vp, F, x, y);
+  for (const s of v.snaps || []) { const [sx, sy] = fvToS(v.vp, F, s.f, s.z); if (Math.hypot(sx - x, sy - y) < 14) { q = { f: s.f, z: s.z }; break; } }
+  q = { f: clamp(q.f, 0, F.L), z: clamp(q.z, 0, F.H) };
+  if (v.mode === 'metro') { if (!v.m.a || v.m.b) v.m = { a: q, b: null }; else v.m.b = q; }
+  else if (v.mode === 'punto') v.pend = q;
+  $('#fvMsg').innerHTML = fvMsgHTML(F); drawFv();
+}
+function fvAddPoint() {
+  const v = S.fv, F = v && wallFace(v.key); if (!F || !v.pend) return;
+  const [t, sub] = ($('#fv-pt').value || 'elettrico:presa').split(':'), zIn = num($('#fv-pz').value);
+  const def = CATALOG.flatMap(c => c.items).find(i => i.t === t && i.sub === sub) || catDef(t);
+  const [x, y] = F.pt(v.pend.f), it = makeItem(def, x, y, F.rot);
+  it.z = Math.round(clamp(zIn == null ? v.pend.z + F.z0 : zIn, 0, 400));
+  if (F.ortho) snapFace(it); else { it.x = Math.round(x); it.y = Math.round(y); }
+  P().livelli[t === 'idraulico' ? 'id' : 'el'] = true; P().vedElettrico = P().livelli.el;
+  P().arredi.push(it); v.pendT = t + ':' + sub; v.pend = null; changed();
+  toast((PT_SUBS(it)[it.sub] || ['Punto'])[0] + ' a ' + fmt(it.z) + ' cm da terra: è anche nella pianta');
+  renderFogli();
+}
+function fvMetroText() {
+  const v = S.fv, F = wallFace(v.key), m = v.m; if (!F || !m.a || !m.b) return '';
+  const dx = Math.abs(m.b.f - m.a.f), dz = Math.abs(m.b.z - m.a.z), d = Math.hypot(dx, dz), cur = fvSheet();
+  return `${F.nome}${F.dove ? ' (' + F.dove + ')' : ''}: ${fmt(d)} cm${dx > 1 && dz > 1 ? ` (orizzontale ${fmt(dx)}, verticale ${fmt(dz)})` : ''}, dal punto a ${fmt(m.a.f)} cm dal bordo sinistro e ${fmt(m.a.z + F.z0)} cm da terra${cur ? ' · foto ' + faseNome(cur) : ''}`;
+}
+
+/* nuova foto della parete */
+async function fvNewSheet(img, file) {
+  const v = S.fv; if (!v) return;
+  const big = await toJpeg(img, 1600, .85); if (!big.blob) { toast('Non riesco ad aprire questa foto'); return; }
+  const path = 'foto/' + uid() + '.jpg';
+  S.photos.set(path, big.blob); S.pending.add(path); IDB.put('blobs', path, big.blob);
+  const d = file && file.lastModified ? new Date(file.lastModified) : new Date();
+  const sh = { id: uid(), par: v.key, fase: v.addFase || 'tracce', nome: '', nota: '', data: d.toISOString(), src: path, foto: null, rett: null, q: null };
+  P().fogli.push(sh); v.sel = sh.id; v.addOpen = false; v.over = null; changed({ rebuild: false });
+  startRect(sh, img);
+}
+
+/* raddrizza con 4 tocchi */
+async function startRect(sh, img) {
+  const v = S.fv; if (!v) return;
+  if (!img) {
+    const b = await photoBlob(sh.src); if (!b) { toast('Foto non disponibile: riprova tra poco'); return; }
+    const u = URL.createObjectURL(b); try { img = await loadImg(u); } catch (e) { toast('Non riesco ad aprire questa foto'); return; } finally { setTimeout(() => URL.revokeObjectURL(u), 1000); }
+  }
+  const k = Math.min(1, 1800 / Math.max(img.naturalWidth, img.naturalHeight)), src = document.createElement('canvas');
+  src.width = Math.round(img.naturalWidth * k); src.height = Math.round(img.naturalHeight * k); src.getContext('2d').drawImage(img, 0, 0, src.width, src.height);
+  const W = src.width, H = src.height, F = wallFace(v.key);
+  const q = sh.q ? sh.q.map(p => [p[0] * W, p[1] * H]) : [[W * .12, H * .12], [W * .88, H * .12], [W * .88, H * .88], [W * .12, H * .88]];
+  const R = sh.rett || { x: 0, y: 0, w: F.L, h: F.H };
+  v.rc = { id: sh.id, src, q, active: -1, R: Object.assign({}, R), part: !!sh.rett && (R.x > 0 || R.y > 0 || R.w < F.L || R.h < F.H) };
+  renderFogli();
+}
+function renderRect(F) {
+  const rc = S.fv.rc;
+  fvEl.innerHTML = `<div class="ov-head"><button class="icon-btn" data-act="fvRectNo" aria-label="Indietro">${I.x}</button><div class="fv-title"><h2>Raddrizza la foto</h2><span>${esc(F.nome)} · ${fmt(F.L)} × ${fmt(F.H)} cm</span></div></div>
+    <div class="ov-body"><div class="ov-canvas" id="rcBox"><canvas id="rcCv"></canvas></div><div class="ov-side">
+    <p class="note">Trascina i 4 cerchi sui 4 angoli della parete, poi tocca <b>Fatto</b>.</p>
+    <div class="row-btns"><button class="btn primary" data-act="fvRectOk">Fatto</button><button class="btn" data-act="fvRectNo">Più tardi</button></div>
+    ${rc.part ? `<p class="note">Scrivi dove sta il pezzo di parete che hai inquadrato:</p><div class="fields two">${numField('rc-x', 'Da sinistra', 'x', fmt(rc.R.x), 'cm', 'data-rcr')}${numField('rc-w', 'Larghezza', 'w', fmt(rc.R.w), 'cm', 'data-rcr')}${numField('rc-y', 'Da terra', 'y', fmt(rc.R.y), 'cm', 'data-rcr')}${numField('rc-h', 'Altezza', 'h', fmt(rc.R.h), 'cm', 'data-rcr')}</div>` : `<button class="linkbtn" data-act="fvPart">La foto prende solo un pezzo di parete?</button>`}</div></div>`;
+  drawRectFv(); bindRectFv();
+}
+function rcViewFv() { const rc = S.fv.rc, box = $('#rcBox'), cvR = $('#rcCv'), W = box.clientWidth, H = box.clientHeight, dpr = Math.min(2, devicePixelRatio || 1); cvR.width = W * dpr; cvR.height = H * dpr; const s = Math.min(W / rc.src.width, H / rc.src.height) * .94; return { W, H, dpr, s, ox: (W - rc.src.width * s) / 2, oy: (H - rc.src.height * s) / 2 }; }
+function drawRectFv() {
+  const rc = S.fv && S.fv.rc; if (!rc || !$('#rcCv')) return;
+  const v = rcViewFv(), c = $('#rcCv').getContext('2d'); rc.v = v;
+  c.setTransform(v.dpr, 0, 0, v.dpr, 0, 0); c.clearRect(0, 0, v.W, v.H); c.drawImage(rc.src, v.ox, v.oy, rc.src.width * v.s, rc.src.height * v.s);
+  const Q = rc.q.map(p => [v.ox + p[0] * v.s, v.oy + p[1] * v.s]), acc = tok('--accent');
+  c.fillStyle = 'rgba(0,0,0,.28)'; c.beginPath(); c.rect(0, 0, v.W, v.H); c.moveTo(Q[0][0], Q[0][1]); for (let i = 3; i >= 0; i--) c.lineTo(Q[i][0], Q[i][1]); c.closePath(); c.fill('evenodd');
+  c.strokeStyle = acc; c.lineWidth = 2; c.beginPath(); Q.forEach((p, i) => i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1])); c.closePath(); c.stroke();
+  Q.forEach((p, i) => { c.fillStyle = '#fff'; c.strokeStyle = acc; c.lineWidth = 3; c.beginPath(); c.arc(p[0], p[1], 13, 0, Math.PI * 2); c.fill(); c.stroke(); c.fillStyle = acc; c.font = '600 12px ' + tok('--font-num'); c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(String(i + 1), p[0], p[1]); });
+  if (rc.active >= 0) { const p = rc.q[rc.active], z = 3, rr = 56; c.save(); c.beginPath(); c.arc(rr + 10, rr + 10, rr, 0, Math.PI * 2); c.clip(); c.drawImage(rc.src, p[0] - rr / z, p[1] - rr / z, 2 * rr / z, 2 * rr / z, 10, 10, 2 * rr, 2 * rr); c.restore(); c.strokeStyle = acc; c.lineWidth = 2; c.beginPath(); c.arc(rr + 10, rr + 10, rr, 0, Math.PI * 2); c.stroke(); c.beginPath(); c.moveTo(rr + 2, rr + 10); c.lineTo(rr + 18, rr + 10); c.moveTo(rr + 10, rr + 2); c.lineTo(rr + 10, rr + 18); c.stroke(); }
+}
+function bindRectFv() {
+  const cvR = $('#rcCv'), rc = S.fv.rc;
+  cvR.onpointerdown = e => { const r = cvR.getBoundingClientRect(), v = rc.v, x = e.clientX - r.left, y = e.clientY - r.top; let best = -1, bd = 44; rc.q.forEach((p, i) => { const d = Math.hypot(v.ox + p[0] * v.s - x, v.oy + p[1] * v.s - y); if (d < bd) { bd = d; best = i; } }); if (best < 0) return; rc.active = best; try { cvR.setPointerCapture(e.pointerId); } catch (er) {} drawRectFv(); };
+  cvR.onpointermove = e => { if (rc.active < 0) return; const r = cvR.getBoundingClientRect(), v = rc.v; rc.q[rc.active] = [clamp((e.clientX - r.left - v.ox) / v.s, 0, rc.src.width), clamp((e.clientY - r.top - v.oy) / v.s, 0, rc.src.height)]; drawRectFv(); };
+  cvR.onpointerup = cvR.onpointercancel = () => { rc.active = -1; drawRectFv(); };
+}
+function orderQuad(p) { const cx = p.reduce((a, q) => a + q[0], 0) / 4, cy = p.reduce((a, q) => a + q[1], 0) / 4; const s = p.slice().sort((a, b) => Math.atan2(a[1] - cy, a[0] - cx) - Math.atan2(b[1] - cy, b[0] - cx)); let i0 = 0, best = Infinity; s.forEach((q, i) => { if (q[0] + q[1] < best) { best = q[0] + q[1]; i0 = i; } }); return s.slice(i0).concat(s.slice(0, i0)); }
+function solveLin(A, b) { const n = b.length, M2 = A.map((r, i) => r.concat([b[i]])); for (let c = 0; c < n; c++) { let p = c; for (let r = c + 1; r < n; r++) if (Math.abs(M2[r][c]) > Math.abs(M2[p][c])) p = r; [M2[c], M2[p]] = [M2[p], M2[c]]; const d = M2[c][c] || 1e-12; for (let r = 0; r < n; r++) { if (r === c) continue; const f = M2[r][c] / d; for (let k = c; k <= n; k++) M2[r][k] -= f * M2[c][k]; } } return M2.map((r, i) => r[n] / (r[i] || 1e-12)); }
+function homography(src, dst) { const A = [], b = []; for (let i = 0; i < 4; i++) { const [x, y] = dst[i], [u, v] = src[i]; A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]); b.push(u); A.push([0, 0, 0, x, y, 1, -v * x, -v * y]); b.push(v); } return solveLin(A, b).concat([1]); }
+function warp(srcCanvas, quad, ow, oh) {
+  const sw = srcCanvas.width, sh = srcCanvas.height, sd = srcCanvas.getContext('2d').getImageData(0, 0, sw, sh).data;
+  const H = homography(quad, [[0, 0], [ow, 0], [ow, oh], [0, oh]]), out = document.createElement('canvas'); out.width = ow; out.height = oh;
+  const og = out.getContext('2d'), od = og.createImageData(ow, oh), d = od.data;
+  for (let y = 0; y < oh; y++) for (let x = 0; x < ow; x++) {
+    const w = H[6] * x + H[7] * y + 1, u = (H[0] * x + H[1] * y + H[2]) / w, v = (H[3] * x + H[4] * y + H[5]) / w;
+    const x0 = Math.floor(u), y0 = Math.floor(v), fx = u - x0, fy = v - y0, o = (y * ow + x) * 4;
+    if (x0 < 0 || y0 < 0 || x0 >= sw - 1 || y0 >= sh - 1) { d[o] = d[o + 1] = d[o + 2] = 200; d[o + 3] = 255; continue; }
+    const i00 = (y0 * sw + x0) * 4, i10 = i00 + 4, i01 = i00 + sw * 4, i11 = i01 + 4;
+    for (let c = 0; c < 3; c++) d[o + c] = (sd[i00 + c] * (1 - fx) + sd[i10 + c] * fx) * (1 - fy) + (sd[i01 + c] * (1 - fx) + sd[i11 + c] * fx) * fy;
+    d[o + 3] = 255;
+  }
+  og.putImageData(od, 0, 0); return out;
+}
+async function rectOk() {
+  const v = S.fv, rc = v && v.rc; if (!rc) return;
+  const F = wallFace(v.key), sh = P().fogli.find(f => f.id === rc.id); if (!F || !sh) { v.rc = null; renderFogli(); return; }
+  const R = Object.assign({}, rc.R);
+  if (!(R.w > 0 && R.h > 0) || R.x == null || R.y == null) { toast('Scrivi le misure in centimetri'); return; }
+  const k = Math.min(4, 1800 / Math.max(R.w, R.h)), ow = Math.max(8, Math.round(R.w * k)), oh = Math.max(8, Math.round(R.h * k));
+  const quad = orderQuad(rc.q), out = warp(rc.src, quad, ow, oh);
+  const blob = await new Promise(res => out.toBlob(res, 'image/jpeg', .85)); if (!blob) { toast('Raddrizzamento non riuscito'); return; }
+  const path = 'foto/' + uid() + '.jpg';
+  S.photos.set(path, blob); S.pending.add(path); IDB.put('blobs', path, blob);
+  if (sh.foto) markRemoved(sh.foto);
+  sh.foto = path; sh.rett = { x: Math.round(R.x), y: Math.round(R.y), w: Math.round(R.w), h: Math.round(R.h) }; sh.q = quad.map(p => [p[0] / rc.src.width, p[1] / rc.src.height]);
+  if (!P().pareti3d[v.key]) P().pareti3d[v.key] = sh.id;
+  v.rc = null; v.vp = null; changed(); renderFogli(); toast('Foto raddrizzata: ora è in centimetri veri');
+}
+function delSheet(sh) {
+  const p = P(); p.fogli = p.fogli.filter(f => f !== sh);
+  if (p.pareti3d[sh.par] === sh.id) delete p.pareti3d[sh.par];
+  const used = usedPaths(); [sh.src, sh.foto].forEach(x => { if (x && !used.has(x)) markRemoved(x); });
+  if (S.fv) { if (S.fv.over === sh.id) S.fv.over = null; S.fv.sel = null; S.fv.armed = null; }
+  changed();
+}
+let fvArmT = 0;
+fvEl.addEventListener('click', e => {
+  const b = e.target.closest('[data-act]'); if (!b || b.disabled || !S.fv) return;
+  const v = S.fv, a = b.dataset.act, cur = fvSheet();
+  switch (a) {
+    case 'fvClose': closeFogli(); break;
+    case 'fvMode': v.mode = b.dataset.v; v.m = { a: null, b: null }; v.pend = null; renderFogli(); break;
+    case 'fvOver': v.over = v.over === b.dataset.id ? null : b.dataset.id; renderFogli(); break;
+    case 'fvSel': v.sel = b.dataset.id; v.armed = null; if (v.over === v.sel) v.over = null; renderFogli(); break;
+    case 'fvAddOpen': v.addOpen = true; renderFogli(); break;
+    case 'fvAdd': v.addFase = b.dataset.v; pickPhoto({ mode: 'foglio' }); break;
+    case 'fvRect': if (cur) startRect(cur); break;
+    case 'fvRectOk': rectOk(); break;
+    case 'fvPart': v.rc.part = true; renderFogli(); break;
+    case 'fvRectNo': v.rc = null; renderFogli(); break;
+    case 'fvDel':
+      if (!cur) break;
+      if (v.armed !== 'del') { v.armed = 'del'; clearTimeout(fvArmT); fvArmT = setTimeout(() => { if (S.fv && S.fv.armed === 'del') { S.fv.armed = null; renderFogli(); } }, 3500); renderFogli(); break; }
+      delSheet(cur); renderFogli(); toast('Foto eliminata. Puoi annullare dalla freccia in alto'); break;
+    case 'fvMetroIdea': { const t = fvMetroText(); if (t) { addIdea(t); toast('Aggiunta alle idee'); v.m = { a: null, b: null }; $('#fvMsg').innerHTML = fvMsgHTML(wallFace(v.key)); drawFv(); } break; }
+    case 'fvMetroNew': v.m = { a: null, b: null }; $('#fvMsg').innerHTML = fvMsgHTML(wallFace(v.key)); drawFv(); break;
+    case 'fvPtAdd': fvAddPoint(); break;
+    case 'fvPtNo': v.pend = null; $('#fvMsg').innerHTML = fvMsgHTML(wallFace(v.key)); drawFv(); break;
+  }
+});
+fvEl.addEventListener('input', e => {
+  const el = e.target, v = S.fv; if (!v) return;
+  if (el.dataset.rcr && v.rc) { const n = num(el.value); if (n != null) v.rc.R[el.dataset.rcr] = n; return; }
+  const k = el.dataset.fv; if (!k) return;
+  const cur = fvSheet();
+  if (k === 'op') { v.op = clamp(+el.value / 100, 0, 1); drawFv(); return; }
+  if (k === 'pts') { v.pts = el.checked; drawFv(); return; }
+  if (k === 'over') { v.over = el.value || null; renderFogli(); return; }
+  if (!cur) return;
+  if (k === 'nota') { cur.nota = el.value.slice(0, 1000); changed({ commit: false, rebuild: false }); }
+  else if (k === 'nome') { cur.nome = el.value.slice(0, 40); changed({ commit: false, rebuild: false }); }
+});
+fvEl.addEventListener('change', e => {
+  const el = e.target, v = S.fv, k = el.dataset.fv, cur = fvSheet(); if (!v || !k || !cur) return;
+  if (k === 'fase') { if (FASI[el.value]) cur.fase = el.value; changed({ rebuild: false }); renderFogli(); }
+  else if (k === 'data') { const d = el.value ? new Date(el.value + 'T12:00:00') : null; if (d && !isNaN(d)) { cur.data = d.toISOString(); changed({ rebuild: false }); renderFogli(); } }
+  else if (k === 'in3d') { if (el.checked) P().pareti3d[v.key] = cur.id; else delete P().pareti3d[v.key]; if (el.checked && LV().foto === false) P().livelli.foto = true; changed(); renderFogli(); toast(el.checked ? 'La foto è sulla parete nella vista 3D' : 'Foto tolta dalla vista 3D'); }
+  else if (k === 'nota' || k === 'nome') commit();
+});
+fvEl.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('input')) e.target.blur(); });
+window.addEventListener('resize', () => { if (!S.fv) return; if (S.fv.rc) drawRectFv(); else { S.fv.vp = null; drawFv(); } });
+
 /* esporta / importa */
 async function exportProject() {
   if (!caps.dl) return;
@@ -2468,6 +2949,7 @@ async function importObject(obj) {
   }
   fresh.arredi.forEach(i => { if (i.foto && map[i.foto]) i.foto = map[i.foto]; });
   if (fresh.planimetria && map[fresh.planimetria.src]) fresh.planimetria.src = map[fresh.planimetria.src];
+  fresh.fogli.forEach(f => { if (map[f.src]) f.src = map[f.src]; if (f.foto && map[f.foto]) f.foto = map[f.foto]; });
   S.project = fresh; S.sel = null; S.calib = null; S.pasteOpen = false; renderHint(); changed(); fitView(); T.framed = false; if (S.view === '3d') { frame3D(); T.framed = true; } renderPanel(true);
   toast('Copia importata');
   return true;
@@ -2476,6 +2958,7 @@ async function importObject(obj) {
 /* tastiera (computer) */
 document.addEventListener('keydown', e => {
   if (e.target.closest && e.target.closest('input,select,textarea')) return;
+  if (S.fv) { if (e.key === 'Escape') { if (S.fv.rc) { S.fv.rc = null; renderFogli(); } else closeFogli(); } return; }
   const mod = e.ctrlKey || e.metaKey;
   if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); travel(e.shiftKey ? 1 : -1); return; }
   if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); travel(1); return; }
@@ -2579,6 +3062,7 @@ function resetForOpen() {
   clearTimeout(pubT); clearTimeout(draftT);
   if (S.metroOn) setMetro(false);
   S.sel = null; S.calib = null; S.armed = null; S.conflict = null; S.pasteOpen = false;
+  if (S.fv) { S.fv = null; fvEl.hidden = true; fvEl.innerHTML = ''; }
   S.pending.clear(); S.removed.clear(); S.gone.clear();
   S.dirty = false; S.retried = false; S.readOnly = false; S.editSeq++;
   T.framed = false; renderHint();
@@ -2593,7 +3077,7 @@ async function openCasa(id, ui) {
   let draft = null; try { draft = await IDB.get('kv', 'draft:' + id); } catch (e) {}
   await enter(remote, draft, ui && ui.vp ? ui : null);
   if (!P().stanze.length && !P().planimetria) S.tab = 'pianta';
-  for (const pth of usedPaths()) if (!S.photos.has(pth) && !pth.startsWith('foto/cat-')) await photoBlob(pth);
+  for (const pth of usedPaths(true)) if (!S.photos.has(pth) && !pth.startsWith('foto/cat-')) await photoBlob(pth);
   if (S.casaId !== id) return;
   T.dirty = true; requestDraw(); request3D(); renderPanel(true);
 }
