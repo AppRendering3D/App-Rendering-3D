@@ -249,6 +249,8 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .tube{fill:none;stroke:var(--ink-2);stroke-opacity:.22;stroke-linecap:round;stroke-linejoin:round}
 .tubel{fill:none;stroke:var(--ink-2);stroke-width:1;vector-effect:non-scaling-stroke}
 .appf{fill:var(--ov);fill-opacity:.85;stroke:var(--hull-line);stroke-width:1.2;vector-effect:non-scaling-stroke}
+.sovf{fill:var(--hull);fill-opacity:.9;stroke:var(--hull-line);stroke-width:1.2;vector-effect:non-scaling-stroke}
+.sovf.v{fill:#22313A;fill-opacity:.75}
 .par{stroke:var(--wood);stroke-width:3;vector-effect:non-scaling-stroke}
 .parhit{stroke:transparent;stroke-width:16;vector-effect:non-scaling-stroke}
 .pag{fill:var(--wood);fill-opacity:.28;stroke:var(--wood);stroke-width:1.2;vector-effect:non-scaling-stroke}
@@ -562,6 +564,13 @@ function makeExample() {
 }
 function nz(v, d) { const n = num(v); return n == null ? d : n; }
 function normPts(a) { return Array.isArray(a) ? a.filter(p => Array.isArray(p) && p.length >= 2 && p.every(Number.isFinite)).map(p => p.slice(0, 3)) : []; }
+// tuga, tetto e vetri letti dai disegni: contorni di fianco in cm (x da poppa, z sopra il galleggiamento) e mezza larghezza vista dall'alto
+const SOVRA = { tuga: 'Tuga', tetto: 'Tetto', vetro: 'Vetro' };
+function normSovra(v) {
+  if (!v || !Array.isArray(v.pezzi)) return null;
+  const pezzi = v.pezzi.filter(q => q && SOVRA[q.k]).map(q => ({ k: q.k, n: String(q.n || SOVRA[q.k]).slice(0, 40), p: normPts(q.p).map(r => r.slice(0, 2)) })).filter(q => q.p.length >= 3).slice(0, 30);
+  return pezzi.length ? { pezzi, hw: normPts(v.hw).map(r => r.slice(0, 2)) } : null;
+}
 function normalizeBoat(src, idHint) {
   const p = src && typeof src === 'object' ? src : {};
   const tipo = TIPI[p.scafo && p.scafo.tipo] ? p.scafo.tipo : 'planante';
@@ -579,6 +588,7 @@ function normalizeBoat(src, idHint) {
   const out = { v: 1, id: String(p.id || idHint || uid()), nome: String(p.nome || 'Barca').slice(0, 60), esempio: !!p.esempio, aggiornato: p.aggiornato || null, rev: p.rev || null,
     scheda: Object.assign({}, p.scheda || {}), scafo: s, rif: { fianco: ref(p.rif && p.rif.fianco), alto: ref(p.rif && p.rif.alto) }, el: [], circuiti: [],
     carena: Object.assign(defaultCarena(), p.carena || {}), livelli: Object.assign({}, DEF_LIV, p.livelli || {}),
+    sovra: normSovra(p.sovra),
     prop: typeof p.prop === 'string' ? p.prop : '', propNome: typeof p.propNome === 'string' ? p.propNome : '', con: Array.isArray(p.con) ? p.con.filter(x => typeof x === 'string') : [] };
   out.carena.voci = Array.isArray(p.carena && p.carena.voci) ? p.carena.voci.filter(v => v && BASI[v.base]).map(v => ({ id: String(v.id || uid()), nome: String(v.nome || 'Voce'), base: v.base, q: nz(v.q, 1), prezzo: nz(v.prezzo, 0) })) : defaultCarena().voci;
   for (const e of Array.isArray(p.el) ? p.el : []) {
@@ -872,6 +882,34 @@ function hullThumbData(b) {
     return { sh, kl, app: m.app.map(a => a.poly.map(p => [q(p[0] / m.L), q(p[1] / m.L)])), g: m.tipo === 'gommone' ? q(m.P.tubo / m.L) : 0 };
   } catch (e) { return null; }
 }
+/* tuga e tetto: per ogni pezzo, colonne lungo la barca con altezza (dal contorno di fianco) e mezza larghezza (dalla vista dall'alto o dalla coperta) */
+function sovraCols(b, m) {
+  const sv = b.sovra; if (!sv) return [];
+  const hw = sv.hw.length >= 2 ? sv.hw : null, out = [];
+  for (const q of sv.pezzi) {
+    if (q.k === 'vetro') continue;
+    const xs = q.p.map(p => p[0]), x0 = Math.min(...xs), x1 = Math.max(...xs), cols = [];
+    // la larghezza dall'alto vale solo se copre buona parte del pezzo (l'AI a volte ricalca un'altra cosa)
+    const hwOk = hw && Math.min(x1, hw[hw.length - 1][0]) - Math.max(x0, hw[0][0]) > (x1 - x0) * .6;
+    for (let i = 0; i <= 28; i++) {
+      const x = lerp(x0 + .5, x1 - .5, i / 28), zs = crossAt(q.p, x, 0, 1); if (zs.length < 2) continue;
+      const hb = m.hb(clamp(x / m.L, 0, 1));
+      let w = hwOk ? interp(hw, x) : hb - (q.k === 'tuga' ? 22 : 18);
+      w = q.k === 'tuga' ? clamp(w * .97, 8, Math.max(8, hb - 15)) : clamp(w, 8, hb + 5);
+      cols.push({ x, z0: Math.min(...zs), z1: Math.max(...zs), wb: w, wt: q.k === 'tuga' ? w * .88 : w });
+    }
+    if (cols.length >= 2) out.push({ k: q.k, n: q.n, cols });
+  }
+  return out;
+}
+// mezza larghezza della tuga nel punto (x, z), per appoggiarci i vetri
+function sovraW(pz, x, z) {
+  for (const q of pz.filter(q => q.k === 'tuga').concat(pz.filter(q => q.k !== 'tuga'))) { const c = q.cols; if (x < c[0].x - 1 || x > c[c.length - 1].x + 1) continue;
+    let i = 1; while (i < c.length - 1 && c[i].x < x) i++; const a = c[i - 1], d = c[i], u = clamp((x - a.x) / Math.max(1, d.x - a.x), 0, 1);
+    const z0 = lerp(a.z0, d.z0, u), z1 = lerp(a.z1, d.z1, u);
+    return lerp(lerp(a.wb, d.wb, u), lerp(a.wt, d.wt, u), clamp((z - z0) / Math.max(1, z1 - z0), 0, 1)); }
+  return null;
+}
 /* ================= viste 2D: dall'alto e di fianco ================= */
 const svg = $('#plan'), vpG = $('#vpG'), stage = $('#stage');
 let drawQ = false;
@@ -948,6 +986,7 @@ function drawHullTop(m) {
   let h = '';
   if (m.tube) h += `<polyline class="tube" style="stroke-width:${m.P.tubo}" points="${m.tube.map(p => r1(p[0]) + ',' + r1(p[1])).join(' ')}"/>`;
   h += `<polygon class="hullf${b.livelli.rif && b.rif.alto && b.rif.alto.vis ? ' ref' : ''}" points="${deck}"/>`;
+  for (const q of sovraCols(b, m)) { const c = q.cols; h += `<polygon class="sovf" style="fill-opacity:.5" points="${c.map(p => [p.x, p.wb]).concat(c.slice().reverse().map(p => [p.x, -p.wb])).map(p => r1(p[0]) + ',' + r1(p[1])).join(' ')}"/>`; }
   for (const s of st) { if (s.k >= 0) continue; const y = yAtSection(s, 0); if (y != null) { wlS.push([s.x, y]); wlP.push([s.x, -y]); } }
   if (wlS.length > 1) h += `<polyline class="wl d" points="${wlS.map(p => r1(p[0]) + ',' + r1(p[1])).join(' ')}"/><polyline class="wl d" points="${wlP.map(p => r1(p[0]) + ',' + r1(p[1])).join(' ')}"/>`;
   // pozzetto
@@ -966,6 +1005,7 @@ function drawHullSide(m) {
   if (m.tube) h += `<polyline class="tube" style="stroke-width:${m.P.tubo}" points="${m.tube.slice(0, Math.ceil(m.tube.length / 2)).map(p => r1(p[0]) + ',' + r1(-p[2])).join(' ')}"/>`;
   for (const a of m.app) h += `<polygon class="appf" points="${a.poly.map(p => r1(p[0]) + ',' + r1(-p[1])).join(' ')}"/>`;
   h += `<polygon class="hullf${b.livelli.rif && b.rif.fianco && b.rif.fianco.vis ? ' ref' : ''}" style="fill:url(#gHull)" points="${poly}"/>`;
+  if (b.sovra) for (const k of ['tuga', 'tetto', 'vetro']) for (const q of b.sovra.pezzi) if (q.k === k) h += `<polygon class="sovf${k === 'vetro' ? ' v' : ''}${b.livelli.rif && b.rif.fianco && b.rif.fianco.vis ? ' ref' : ''}" points="${q.p.map(p => r1(p[0]) + ',' + r1(-p[1])).join(' ')}"/>`;
   h += `<line class="wl" x1="${r1(-80)}" y1="0" x2="${r1(m.L + 80)}" y2="0"/><text class="wllbl" x="${r1(m.L + 60 / s)}" y="${r1(-8 / s)}" font-size="${r1(10 / s)}">LWL</text>`;
   return h;
 }
@@ -1242,6 +1282,34 @@ function rebuild3D() {
     const gS = deckGeo(strip, (s, u) => { const y = lerp(Math.max(0, s.hb - gw), s.hb, u); return [y, s.s]; }), gP = deckGeo(strip, (s, u) => { const y = lerp(-s.hb, -Math.max(0, s.hb - gw), u); return [y, s.s]; });
     for (const geo of [gFull, gS, gP]) if (geo) { const me = new THREE.Mesh(geo, lv.sezione ? new THREE.MeshStandardMaterial({ color: b.scafo.colori.coperta, roughness: .85, side: THREE.DoubleSide, clippingPlanes: [T3.section] }) : hm.deck); me.castShadow = true; me.receiveShadow = true; g.add(me); }
   }
+  // tuga e tetto (dai disegni)
+  if (lv.coperta && b.sovra) {
+    const pz = sovraCols(b, m), mt = new THREE.MeshStandardMaterial({ color: b.scafo.colori.om, roughness: .4, side: THREE.DoubleSide, flatShading: true }), mg = M('#22313A', .1, .2);
+    mt.userData.shared = false;
+    for (const q of pz) {
+      const c = q.cols, pos = [], glass = [], ring = p => [[-p.wb, p.z0], [-p.wt, p.z1], [p.wt, p.z1], [p.wb, p.z0]];
+      const quad = (arr, a, b2, c2, d) => { for (const v of [a, b2, c2, a, c2, d]) arr.push(v[0], v[2], v[1]); };
+      for (let i = 0; i < c.length - 1; i++) {
+        const A = ring(c[i]), D = ring(c[i + 1]), steep = q.k === 'tuga' && Math.abs(c[i + 1].z1 - c[i].z1) / Math.max(1, c[i + 1].x - c[i].x) > .45;
+        for (let k = 0; k < 4; k++) { const k2 = (k + 1) % 4; quad(k === 1 && steep ? glass : pos, [c[i].x, ...A[k]], [c[i + 1].x, ...D[k]], [c[i + 1].x, ...D[k2]], [c[i].x, ...A[k2]]); }
+      }
+      for (const e of [c[0], c[c.length - 1]]) { const R = ring(e); quad(pos, [e.x, ...R[0]], [e.x, ...R[1]], [e.x, ...R[2]], [e.x, ...R[3]]); }
+      for (const [arr, mat] of [[pos, mt], [glass, mg]]) if (arr.length) { const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3)); geo.computeVertexNormals(); const me = new THREE.Mesh(geo, mat); me.castShadow = true; me.receiveShadow = true; g.add(me); }
+    }
+    for (const q of b.sovra.pezzi) {
+      if (q.k !== 'vetro') continue;
+      const ws = q.p.map(p => sovraW(pz, p[0], p[1])); if (ws.some(w => w == null)) continue;
+      // triangoli piccoli, così il vetro segue la fiancata curva della tuga
+      const tri = THREE.ShapeUtils.triangulateShape(q.p.map(p => new THREE.Vector2(p[0], p[1])), []), small = [];
+      const split = (a, c, d, n) => { const e = [[a, c], [c, d], [d, a]].map(([u, v]) => Math.hypot(u[0] - v[0], u[1] - v[1])), mx = Math.max(...e);
+        if (mx < 10 || n > 8) { small.push(a, c, d); return; } const k = e.indexOf(mx), P = [a, c, d], u = P[k], v = P[(k + 1) % 3], o = P[(k + 2) % 3], mid = [(u[0] + v[0]) / 2, (u[1] + v[1]) / 2];
+        split(u, mid, o, n + 1); split(mid, v, o, n + 1); };
+      for (const t of tri) split(q.p[t[0]], q.p[t[1]], q.p[t[2]], 0);
+      const mat = M('#22313A', .15, .2, { side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 });
+      for (const sg of [1, -1]) { const pos = []; for (const p of small) { const w = sovraW(pz, p[0], p[1]); pos.push(p[0], p[1], sg * ((w == null ? Math.max(...ws) : w) + 1)); }
+        const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.computeVertexNormals(); g.add(new THREE.Mesh(geo, mat)); }
+    }
+  }
   // tubolari
   if (m.tube) { const curve = new THREE.CatmullRomCurve3(m.tube.map(p => new THREE.Vector3(p[0], p[2], p[1]))); const tg = new THREE.TubeGeometry(curve, 220, m.P.tubo / 2, 18, false); const me = new THREE.Mesh(tg, hm.tubo); me.castShadow = true; g.add(me);
     for (const end of [m.tube[0], m.tube[m.tube.length - 1]]) { const c = new THREE.Mesh(new THREE.ConeGeometry(m.P.tubo / 2, m.P.tubo * .6, 18), hm.tubo); c.rotation.z = Math.PI / 2; c.position.set(end[0] - m.P.tubo * .3, end[2], end[1]); g.add(c); } }
@@ -1495,6 +1563,7 @@ function tabImmagini() {
   const b = B();
   let o = `<button class="cta" data-act="imgInsert">${I.img}<span><b>Inserisci immagine</b><small>Disegno, planimetria o foto normale: della barca intera, di un pannello o di un oggetto.</small></span></button>`;
   o += refBlock('fianco') + refBlock('alto');
+  if (b.sovra) o += `<div class="banner"><p><b>Tuga e tetto dai disegni:</b> ${b.sovra.pezzi.map(q => esc(q.n)).join(', ')}.</p><p class="note">Li ha ricalcati l’AI dal profilo di fianco. Si vedono con il livello Coperta.</p><button class="btn sm danger${S.armed === 'delSovra' ? ' armed' : ''}" data-act="delSovra">${S.armed === 'delSovra' ? 'Tocca ancora per toglierli' : 'Togli tuga e tetto'}</button></div>`;
   const pans = b.el.filter(e => e.t === 'pannello');
   o += `<div class="lab">Fogli fotografici sui pannelli</div>`;
   o += pans.length ? `<div class="list">${pans.map(p => `<button class="lrow" data-act="selEl" data-id="${p.id}"><b>${esc(p.n)}</b><span>${p.fogli.length} foto</span></button>`).join('')}</div>` : `<p class="note">Nessun pannello. Aggiungilo da Interni, oppure inserisci la foto di un pannello qui sopra.</p>`;
@@ -2036,8 +2105,9 @@ Ricava i dati per ricostruirla in 3D. Rispondi solo con un oggetto JSON:
  "scheda": {KEYS},
  "scafo": {"L": lunghezza dello scafo in cm (senza pulpiti e plancette), "B": larghezza dello scafo in cm (per i gommoni senza i tubolari), "T": immersione dello scafo in cm, "Fa": bordo libero a poppa in cm, "Fb": bordo libero a prua in cm, "betaA": angolo della V a poppa in gradi, "tubo": diametro dei tubolari in cm (solo gommoni), "pescaggio": pescaggio totale con chiglia in cm (solo vela), "pozzettoDa": inizio del pozzetto aperto in frazione della lunghezza da poppa (0-1), "pozzettoA": fine del pozzetto (0-1)},
  "interni": [{"tipo": una tra ${ARREDI.map(a => a.k).join(', ')}, "nome": "nome breve", "x": centro in cm da poppa, "y": centro in cm dall'asse (positivo a dritta), "z": base in cm sopra la linea di galleggiamento (negativo se sotto), "w": lunghezza in cm lungo la barca, "d": larghezza in cm, "h": altezza in cm}],
+ "viste": {"fianco": {"immagine": numero dell'immagine con la vista di fianco della barca intera più chiara (meglio un disegno tecnico del profilo che una foto), "box": [ymin, xmin, ymax, xmax] da 0 a 1000 che racchiude tutta la barca con sovrastruttura e appendici}, "alto": {"immagine": numero dell'immagine con la vista dall'alto della barca intera più chiara (pianta della coperta), "box": [ymin, xmin, ymax, xmax]}},
  "daVerificare": ["frasi brevi su cosa hai stimato o non si legge bene"]}
-Regole: usa i numeri scritti nel documento quando ci sono, convertendo metri e piedi in cm. Ometti i campi che non riesci né a leggere né a stimare in modo ragionevole. Gli interni mettili solo se il documento mostra la disposizione (pianta degli interni o descrizione), stimando le posizioni dal disegno. Tutto quello che stimi scrivilo in daVerificare.`.replace('KEYS', 'marca, modello, anno, categoria (A/B/C/D), loa (cm), bmax (cm), dislocamento (kg), portata (kg), persone, potenzaMax (kW), motore (testo), potenza (kW), carburante (litri), acqua (litri), nere (litri), batterie (testo), impianto (testo, es. 12 V)');
+Regole: usa i numeri scritti nel documento quando ci sono, convertendo metri e piedi in cm. Ometti i campi che non riesci né a leggere né a stimare in modo ragionevole. Gli interni mettili solo se il documento mostra la disposizione (pianta degli interni o descrizione), stimando le posizioni dal disegno. In viste metti solo immagini (non PDF) dove la barca si vede intera e senza forte prospettiva; se non ce ne sono, null. Tutto quello che stimi scrivilo in daVerificare.`.replace('KEYS', 'marca, modello, anno, categoria (A/B/C/D), loa (cm), bmax (cm), dislocamento (kg), portata (kg), persone, potenzaMax (kW), motore (testo), potenza (kW), carburante (litri), acqua (litri), nere (litri), batterie (testo), impianto (testo, es. 12 V)');
 function docShapeBoat(r) {
   if (!r || typeof r !== 'object') return null;
   const sc = r.scafo && typeof r.scafo === 'object' ? r.scafo : {}, out = { tipo: TIPI[r.tipo] ? r.tipo : null, nome: typeof r.nome === 'string' ? r.nome.trim().slice(0, 60) : '', scheda: {}, scafo: {}, el: [], dv: [] };
@@ -2049,6 +2119,9 @@ function docShapeBoat(r) {
   const pd = num(sc.pozzettoDa), pa = num(sc.pozzettoA); if (pd != null && pa != null && pd >= 0 && pa <= 1 && pa > pd) out.pozzetto = { da: pd, a: pa };
   for (const e of Array.isArray(r.interni) ? r.interni : []) { if (!e || !ARREDO[e.tipo]) continue; const x = num(e.x); if (x == null) continue; out.el.push({ k: e.tipo, n: typeof e.nome === 'string' && e.nome.trim() ? e.nome.trim().slice(0, 50) : ARREDO[e.tipo].n, x, y: num(e.y) || 0, z: num(e.z) || 0, w: num(e.w), d: num(e.d), h: num(e.h) }); }
   out.dv = (Array.isArray(r.daVerificare) ? r.daVerificare : []).filter(x => typeof x === 'string' && x.trim()).slice(0, 12);
+  out.viste = {};
+  for (const v of ['fianco', 'alto']) { const q = r.viste && r.viste[v], i = q && num(q.immagine), bx = q && Array.isArray(q.box) ? q.box.map(num) : null;
+    if (i >= 1 && bx && bx.length === 4 && bx.every(x => x != null && x >= 0 && x <= 1000) && bx[2] - bx[0] > 20 && bx[3] - bx[1] > 20) out.viste[v] = { i: Math.round(i), box: bx }; }
   const n = Object.keys(out.scheda).length + Object.keys(out.scafo).length + out.el.length;
   return n ? out : null;
 }
@@ -2075,7 +2148,8 @@ async function docBlobs(files) {
       c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
       out.push(await new Promise(res => c.toBlob(res, 'image/jpeg', .82)));
     }
-    if (pdfB + out.reduce((a, x) => a + x.size, 0) * 1.37 <= DOC_TOT || side < 500) return { blobs: pdfs.concat(out), n: pdfs.length + out.length };
+    if (pdfB + out.reduce((a, x) => a + x.size, 0) * 1.37 <= DOC_TOT || side < 500)
+      return { blobs: pdfs.concat(out), n: pdfs.length + out.length, imgs: loaded, labels: pdfs.map(() => 'Documento PDF:').concat(out.map((x, i) => `Immagine ${i + 1}:`)) };
   }
 }
 async function docReadBoat(files) {
@@ -2087,8 +2161,8 @@ async function docReadBoat(files) {
   const blobs = got.blobs, nf = got.n;
   const id = B().id, ctl = new AbortController(); S.doc = { state: 'busy', ctl, n: nf }; S.sel = null; S.tab = 'scheda'; renderPanel(true);
   let r;
-  try { r = docShapeBoat(await caps.sample.json((nf > 1 ? DOC_MOLTI.replace('N', nf) : '') + DOC_PROMPT, { images: blobs, signal: ctl.signal })); }
-  catch (e) { if (!B() || B().id !== id) return; S.doc = e && e.code === 'cancelled' ? null : { state: 'err', msg: e && e.code === 'ai_off' ? AI_OFF : e && e.code === 'rate_limited' ? 'L’AI ha raggiunto il limite di oggi: riprova più tardi.' : (nf > 1 ? 'Non sono riuscito a leggere le foto. Riprova, magari con meno foto o più nitide.' : 'Non sono riuscito a leggere il documento. Riprova o prova con una foto più nitida.') }; renderPanel(true); return; }
+  try { r = docShapeBoat(await caps.sample.json((nf > 1 ? DOC_MOLTI.replace('N', nf) : '') + DOC_PROMPT, { images: blobs, labels: got.labels, signal: ctl.signal })); }
+  catch (e) { if (!B() || B().id !== id) return; S.doc = e && e.code === 'cancelled' ? null : { state: 'err', msg: e && e.code === 'ai_off' ? AI_OFF : e && e.code === 'rate_limited' ? 'L’AI ha raggiunto il limite di oggi: riprova più tardi.' : e && e.code === 'busy' ? 'L’AI di Google in questo momento è sovraccarica: riprova tra qualche minuto.' : (nf > 1 ? 'Non sono riuscito a leggere le foto. Riprova, magari con meno foto o più nitide.' : 'Non sono riuscito a leggere il documento. Riprova o prova con una foto più nitida.') }; renderPanel(true); return; }
   if (!B() || B().id !== id) return;
   if (!r) { S.doc = { state: 'err', msg: 'Nel documento non ho trovato misure o dati della barca.' }; renderPanel(true); return; }
   const before = snapB(), b = B();
@@ -2102,14 +2176,99 @@ async function docReadBoat(files) {
   if (r.nome && /^Barca( nuova| da documento)?$/.test(b.nome)) b.nome = r.nome;
   for (const e of r.el) { const a = ARREDO[e.k]; b.el.push(makeEl('arredo', e.k, { n: e.n, x: Math.round(e.x), y: Math.round(e.y), z: Math.round(e.z), w: e.w > 0 ? Math.round(e.w) : a.w, d: e.d > 0 ? Math.round(e.d) : a.d, h: e.h > 0 ? Math.round(e.h) : a.h })); }
   b.scafo = normalizeBoat(b).scafo; MODEL = null;
-  S.doc = { state: 'preview', before, nDati: Object.keys(r.scheda).length + Object.keys(r.scafo).length, nEl: r.el.length, dv: r.dv };
+  // seconda lettura: sui disegni di fianco e dall'alto, ritagliati sulla barca, l'AI ricalca sagoma, tuga e tetto
+  let sag = null;
+  if (Object.keys(r.viste).length) {
+    S.doc = { state: 'busy', ctl, n: nf, sagoma: true }; renderPanel(true);
+    try { sag = await sagomaDaViste(r.viste, got.imgs, ctl.signal); }
+    catch (e) { if (!(e && e.code === 'cancelled')) r.dv.push(e && e.code === 'rate_limited' ? 'La sagoma dai disegni non è stata ricalcata: l’AI ha raggiunto il limite di oggi.' : 'La sagoma dai disegni non è stata ricalcata: riprova più tardi.'); }
+    if (!B() || B().id !== id) return;
+    if (ctl.signal.aborted) { const keep = { rev: B().rev, aggiornato: B().aggiornato }; S.boat = Object.assign(normalizeBoat(JSON.parse(before)), keep); MODEL = null; S.doc = null; renderPanel(true); requestDraw(); return; } // annullato: tutto come prima
+  }
+  S.doc = { state: 'preview', before, nDati: Object.keys(r.scheda).length + Object.keys(r.scafo).length, nEl: r.el.length, dv: r.dv, sag };
   T3.framed = false; changed(); fitAll(); renderPanel(true);
+}
+/* ritaglio dell'immagine sul box [ymin, xmin, ymax, xmax] (0-1000) con un po' di margine; lato lungo al massimo 1600 px */
+function cropBox(img, box) {
+  const W = img.naturalWidth, H = img.naturalHeight, m = .07;
+  let [y0, x0, y1, x1] = box.map(v => v / 1000); const dx = (x1 - x0) * m, dy = (y1 - y0) * m;
+  x0 = clamp(x0 - dx, 0, 1); x1 = clamp(x1 + dx, 0, 1); y0 = clamp(y0 - dy, 0, 1); y1 = clamp(y1 + dy, 0, 1);
+  const sw = (x1 - x0) * W, sh = (y1 - y0) * H, k = Math.min(1, 1600 / Math.max(sw, sh)), c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(sw * k)); c.height = Math.max(1, Math.round(sh * k));
+  const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, x0 * W, y0 * H, sw, sh, 0, 0, c.width, c.height);
+  return c;
+}
+const SAG_PROMPT = (viste, nome, L) => `Ti mando ${viste.length === 2 ? 'due disegni' : 'un disegno'} della barca ${nome || ''}, già ritagliati sulla barca: ${viste.map(v => v === 'fianco' ? '«Vista di fianco»' : '«Vista dall\'alto»').join(' e ')}. Lo scafo è lungo circa ${Math.round(L)} cm.
+Ricalca con precisione le linee che vedi, punto per punto sul disegno. Ogni punto è [y, x] con valori da 0 a 1000 rispetto all'immagine (0,0 in alto a sinistra), come nei box.
+Rispondi solo con JSON:
+{${viste.includes('fianco') ? `"fianco": {"galleggiamento": [[y,x],[y,x]] due punti sulla linea di galleggiamento, uno verso poppa e uno verso prua (se non è disegnata, dove l'acqua toccherebbe lo scafo),
+  "poppa": [y,x] il punto più a poppa dello scafo (lo specchio, senza plancetta né motore), "prua": [y,x] il punto più a prua dello scafo (senza pulpito, musone o ancora),
+  "coperta": 12-20 punti lungo il bordo superiore della fiancata (capodibanda) da poppa a prua,
+  "fondo": 12-20 punti lungo il profilo più basso dello scafo (chiglia) da poppa a prua, fino alla ruota di prua dove incontra la coperta,
+  "appendici": [contorni di 4-10 punti di piede o gambo del motore, elica, timone, chiglia o pinne, solo se si vedono],
+  "sovrastruttura": [{"tipo": "tuga" (cabina o timoneria chiusa sopra la coperta) | "tetto" (hard-top, tettuccio o roll-bar) | "vetro" (finestrino laterale o parabrezza), "nome": "breve", "contorno": 6-20 punti del contorno chiuso}]}` : ''}${viste.length === 2 ? ',\n ' : ''}${viste.includes('alto') ? `"alto": {"asse": [[y,x],[y,x]] il punto più a poppa e il punto più a prua sull'asse centrale della barca,
+  "bordo": 12-20 punti lungo il bordo esterno della coperta su un solo lato, da poppa a prua,
+  "tuga": 6-20 punti del contorno di tuga e tetto visti dall'alto, oppure null}` : ''}}
+Non ricalcare ombre, acqua, persone, scritte, frecce o quote.`;
+async function sagomaDaViste(viste, imgs, signal) {
+  const b = B(), keys = ['fianco', 'alto'].filter(v => viste[v] && imgs[viste[v].i - 1]); if (!keys.length) return null;
+  const crops = keys.map(v => cropBox(imgs[viste[v].i - 1], viste[v].box));
+  const blobs = await Promise.all(crops.map(c => new Promise(res => c.toBlob(res, 'image/jpeg', .9))));
+  const r = await caps.sample.json(SAG_PROMPT(keys, b.nome, b.scafo.L), { images: blobs, labels: keys.map(v => v === 'fianco' ? 'Vista di fianco:' : 'Vista dall\'alto:'), signal });
+  return sagomaApplica(r, keys, crops);
+}
+async function sagomaApplica(r, keys, crops) {
+  const b = B(), out = { fianco: false, alto: false, pezzi: 0 }; if (!r || typeof r !== 'object') return out;
+  const pt = (c, q) => Array.isArray(q) && q.length >= 2 && Number.isFinite(+q[0]) && Number.isFinite(+q[1]) ? [clamp(+q[1], 0, 1000) / 1000 * c.width, clamp(+q[0], 0, 1000) / 1000 * c.height] : null;
+  const pts = (c, a) => Array.isArray(a) ? a.map(q => pt(c, q)).filter(Boolean) : [];
+  const save = async c => { const url = canvasJpeg(c, CHUNK * 4); return Store.putPhoto(url, { barca: b.id, w: c.width, h: c.height }); };
+  const L = b.scafo.L;
+  let sov = null, hw = [];
+  const fi = keys.indexOf('fianco'), f = fi >= 0 && r.fianco;
+  if (f) {
+    const c = crops[fi], wl = pts(c, f.galleggiamento).slice(0, 2), ends = [pt(c, f.poppa), pt(c, f.prua)];
+    const rf = { foto: '', iw: c.width, ih: c.height, cal: { wl, ends, L }, tr: { coperta: pts(c, f.coperta), fondo: pts(c, f.fondo), bordo: [], app: (Array.isArray(f.appendici) ? f.appendici : []).map(a => pts(c, a)).filter(a => a.length >= 3).slice(0, 6) }, op: .6, vis: true };
+    const T = wl.length === 2 && ends[0] && ends[1] && calFianco(rf);
+    // scarto un ricalco senza senso (scala impossibile o coperta sotto l'acqua)
+    const ok = T && rf.tr.coperta.length >= 3 && rf.tr.coperta.map(p => T.fwd(p[0], p[1])[1]).every(z => z > -20 && z < L * .4);
+    if (ok) {
+      rf.foto = await save(c); b.rif.fianco = rf; out.fianco = true;
+      sov = (Array.isArray(f.sovrastruttura) ? f.sovrastruttura : []).filter(q => q && SOVRA[q.tipo]).map(q => ({ k: q.tipo, n: typeof q.nome === 'string' && q.nome.trim() ? q.nome.trim().slice(0, 40) : SOVRA[q.tipo], p: pts(c, q.contorno).map(p => T.fwd(p[0], p[1]).map(v => Math.round(v))) })).filter(q => q.p.length >= 3);
+    }
+  }
+  const ai = keys.indexOf('alto'), a = ai >= 0 && r.alto;
+  if (a) {
+    const c = crops[ai], axis = pts(c, a.asse).slice(0, 2);
+    const ra = { foto: '', iw: c.width, ih: c.height, cal: { axis, L }, tr: { coperta: [], fondo: [], bordo: pts(c, a.bordo), app: [] }, op: .6, vis: true };
+    const T = axis.length === 2 && calAlto(ra);
+    const ok = T && ra.tr.bordo.length >= 3 && ra.tr.bordo.map(p => Math.abs(T.fwd(p[0], p[1])[1])).every(y => y < L * .4);
+    if (ok) {
+      ra.foto = await save(c); b.rif.alto = ra; out.alto = true;
+      const tg = pts(c, a.tuga).map(p => T.fwd(p[0], p[1]));
+      if (tg.length >= 3) hw = halfWidths(tg);
+    }
+  }
+  if (sov && sov.length) { b.sovra = normSovra({ pezzi: sov, hw }); out.pezzi = b.sovra ? b.sovra.pezzi.length : 0; }
+  MODEL = null; return out;
+}
+// mezza larghezza di un contorno visto dall'alto, ogni tanto lungo la barca
+function halfWidths(poly) {
+  const xs = poly.map(p => p[0]), x0 = Math.min(...xs), x1 = Math.max(...xs), out = [];
+  for (let i = 0; i <= 16; i++) { const x = lerp(x0, x1, i / 16), ys = crossAt(poly, x, 0, 1); if (ys.length) out.push([Math.round(x), Math.round(Math.max(...ys.map(Math.abs)))]); }
+  return out;
+}
+// dove la retta verticale (coordinata i = x) taglia il contorno: valori della coordinata j
+function crossAt(poly, x, i, j) {
+  const out = [];
+  for (let k = 0; k < poly.length; k++) { const a = poly[k], c = poly[(k + 1) % poly.length]; if ((a[i] - x) * (c[i] - x) > 0 || a[i] === c[i]) continue; out.push(lerp(a[j], c[j], (x - a[i]) / (c[i] - a[i]))); }
+  return out;
 }
 function docBanner() {
   const d = S.doc; if (!d) return '';
-  if (d.state === 'busy') return `<div class="ai busy"><span>${d.prep && d.n > 1 ? `Preparo ${d.n} foto…` : d.n > 1 ? `Leggo ${d.n} foto e documenti con l’AI` : 'Leggo il documento con l’AI'}</span><button class="btn sm" data-act="docStop">Annulla</button></div>`;
+  if (d.state === 'busy') return `<div class="ai busy"><span>${d.sagoma ? 'Ricalco la sagoma dai disegni' : d.prep && d.n > 1 ? `Preparo ${d.n} foto…` : d.n > 1 ? `Leggo ${d.n} foto e documenti con l’AI` : 'Leggo il documento con l’AI'}</span><button class="btn sm" data-act="docStop">Annulla</button></div>`;
   if (d.state === 'err') return `<div class="banner warn"><p>${esc(d.msg)}</p><div class="row-btns"><button class="btn sm" data-act="docOk">Chiudi</button></div></div>`;
-  return `<div class="banner"><p><b>Ecco cosa ho letto:</b> ${d.nDati} misure e dati${d.nEl ? ` e ${d.nEl} elementi degli interni` : ''}. Controlla la barca nelle viste e qui sotto.</p>${d.dv.length ? `<p class="note">Da verificare: ${d.dv.map(esc).join(' · ')}</p>` : ''}<div class="row-btns"><button class="btn sm primary" data-act="docOk">Usa</button><button class="btn sm" data-act="docUndo">Annulla</button></div></div>`;
+  const sg = d.sag && [d.sag.fianco && 'il profilo di fianco', d.sag.alto && 'la pianta dall’alto', d.sag.pezzi && 'tuga e tetto'].filter(Boolean);
+  return `<div class="banner"><p><b>Ecco cosa ho letto:</b> ${d.nDati} misure e dati${d.nEl ? ` e ${d.nEl} elementi degli interni` : ''}.${sg && sg.length ? ` Dai disegni ho ricalcato ${sg.join(', ').replace(/, ([^,]*)$/, ' e $1')}: li vedi sotto la barca nelle viste Alto e Fianco.` : ''} Controlla la barca nelle viste e qui sotto.</p>${d.dv.length ? `<p class="note">Da verificare: ${d.dv.map(esc).join(' · ')}</p>` : ''}<div class="row-btns"><button class="btn sm primary" data-act="docOk">Usa</button><button class="btn sm" data-act="docUndo">Annulla</button></div></div>`;
 }
 async function newBoatFromDoc(files) {
   const b = emptyBoat('Barca da documento', 'planante'); b.aggiornato = new Date().toISOString();
@@ -2304,6 +2463,7 @@ document.getElementById('app').addEventListener('click', async e => {
     case 'traceStart': traceStart(v, false); break;
     case 'traceCal': traceStart(v, true); break;
     case 'share': if (!guard() && v) { b.con = b.con.includes(v) ? b.con.filter(x => x !== v) : b.con.concat(v); changed(); renderPanel(true); } break;
+    case 'delSovra': if (!guard()) { if (S.armed !== 'delSovra') { arm('delSovra'); break; } b.sovra = null; S.armed = null; changed(); renderPanel(true); } break;
     case 'delRef': if (!guard()) { if (S.armed !== 'delRef' + v) { arm('delRef' + v); break; } b.rif[v] = null; S.armed = null; MODEL = null; changed(); renderPanel(true); } break;
     case 'trUndo': S.trace.pts.pop(); renderHint(); requestDraw(); break;
     case 'trNext': traceNext(); break;
