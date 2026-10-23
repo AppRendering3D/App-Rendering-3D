@@ -123,8 +123,63 @@
       setTimeout(function () { if (!done) { done = true; res(); } }, 1500);
     });
   }
+  /* ---------- ogni casa e barca ha il suo proprietario (campo prop) ----------
+     prop = uid di chi l'ha creata, oppure 'tutti' per quelle di prima (restano di tutti).
+     Bordo: il proprietario può condividere una barca (campo con = elenco di uid).
+     Chi non è amministratore riceve solo le sue, quelle di tutti e quelle condivise con lui;
+     le foto seguono la casa o la barca a cui appartengono. */
+  var OWN = { indiceCase: 'case', 'case': 'case', casaFoto: 'case', indice: 'barche', barche: 'barche', foto: 'barche' };
+  var TUTTI = 'tutti', OWNER = {}; // 'case/<id>' o 'barche/<id>' -> { prop, nome, con }
+  function colOf(path) { return String(path).split('/')[0]; }
+  function ownKey(path, x) {
+    var p = String(path).split('/'), c = p[0];
+    if (!OWN[c] || p.length !== 2) return null;
+    if (c === 'casaFoto') return x && x.casa ? 'case/' + x.casa : null;
+    if (c === 'foto') return x && x.barca ? 'barche/' + x.barca : null;
+    return OWN[c] + '/' + p[1];
+  }
+  function owning() { return !!ME && !ME.ospite; }
+  function seen(path, x) {
+    var c = colOf(path); if (!x || c === 'casaFoto' || c === 'foto') return;
+    var k = ownKey(path, x); if (k) OWNER[k] = { prop: x.prop || TUTTI, nome: x.propNome || '', con: Array.isArray(x.con) ? x.con : [] };
+  }
+  function withOwner(path, data) {
+    var c = colOf(path), k = ownKey(path, data); if (!owning() || !OWN[c]) return data;
+    var o = k && OWNER[k] ? OWNER[k] : { prop: ME.uid, nome: ME.nome || '', con: [] };
+    if (c === 'barche' && Array.isArray(data.con) && k && OWNER[k] && o.prop === ME.uid) o.con = data.con.filter(function (u) { return typeof u === 'string' && u && u !== ME.uid; }); // solo il proprietario cambia con chi è condivisa
+    data.prop = o.prop; data.propNome = o.nome;
+    if (OWN[c] === 'barche') data.con = o.con.slice(); else delete data.con;
+    if (k) OWNER[k] = o;
+    return data;
+  }
+  // le case e barche di prima non hanno proprietario: l'amministratore le segna «di tutti» la prima volta che apre l'app
+  async function segnaVecchie(cols) {
+    var flag = 'app3d-segnate-' + cols.join('-'); try { if (localStorage.getItem(flag)) return; } catch (e) { }
+    for (var i = 0; i < cols.length; i++) {
+      var s = await fs.collection(cols[i]).get();
+      for (var j = 0; j < s.docs.length; j++) { var d = s.docs[j]; if (!d.get('prop')) await d.ref.update({ prop: TUTTI }); }
+    }
+    try { localStorage.setItem(flag, '1'); } catch (e) { }
+  }
+  // più query della stessa raccolta viste come una sola (le mie + di tutti, condivise con me)
+  function multi(qs, name) {
+    function merge(snaps) { var seen = {}, docs = []; snaps.forEach(function (s) { if (s) s.docs.forEach(function (d) { if (!seen[d.id]) { seen[d.id] = 1; docs.push(d); } }); }); return { docs: docs }; }
+    return {
+      where: function (f, op, v) { return multi(qs.map(function (q) { return q.where(f, op, v); }), name); },
+      orderBy: function (f, d) { return multi(qs.map(function (q) { return q.orderBy(f, d); }), name); },
+      limit: function (n) { return multi(qs.map(function (q) { return q.limit(n); }), name); },
+      get: function () { return Promise.all(qs.map(function (q) { return q.get(); })).then(function (ss) { return wrapQuery(merge(ss)); }, function (e) { throw errOf(e); }); },
+      onSnapshot: function (next, err) {
+        var last = qs.map(function () { return null; });
+        var un = qs.map(function (q, i) { return q.onSnapshot(function (s) { last[i] = s; if (last.every(Boolean)) next(wrapQuery(merge(last))); }, function (e) { if (err) err(errOf(e)); }); });
+        return function () { un.forEach(function (u) { u(); }); };
+      },
+      doc: function (id) { return ref(name + '/' + (id || fs.collection(name).doc().id)); }
+    };
+  }
   function wrapDoc(d) {
     var x = d.exists ? d.data() : null;
+    if (x && d.ref) seen(d.ref.path, x);
     return { id: d.id, exists: !!x, data: function () { return x ? dec(clone(x)) : undefined; }, metadata: d.metadata };
   }
   function wrapQuery(s) { var docs = s.docs.map(wrapDoc); return { docs: docs, size: docs.length, empty: !docs.length, metadata: s.metadata }; }
@@ -133,7 +188,7 @@
     return {
       id: r.id,
       get: function () { return r.get().then(wrapDoc, function (e) { throw errOf(e); }); },
-      set: function (data) { return settle(r.set(enc(clone(data || {})))); },
+      set: function (data) { return settle(r.set(enc(withOwner(path, clone(data || {}))))); },
       update: function (data) { return settle(r.update(enc(clone(data || {})))); },
       delete: function () { return settle(r.delete()); },
       onSnapshot: function (next, err) { return r.onSnapshot(function (s) { next(wrapDoc(s)); }, function (e) { if (err) err(errOf(e)); }); }
@@ -150,7 +205,14 @@
     };
   }
   var DB = {
-    collection: function (name) { return query(fs.collection(name), name); },
+    collection: function (name) {
+      var q = fs.collection(name);
+      if (!OWN[name] || !owning() || isAdmin()) return query(q, name);
+      var qs = [q.where('prop', 'in', [ME.uid, TUTTI])];
+      if (OWN[name] === 'barche') qs.push(q.where('con', 'array-contains', ME.uid));
+      return multi(qs, name);
+    },
+    segnaVecchie: function (app) { return isAdmin() ? segnaVecchie(app === 'casa' ? ['indiceCase', 'case', 'casaFoto'] : ['indice', 'barche', 'foto']).catch(function () { }) : Promise.resolve(); },
     doc: function (path) { return ref(path); }
   };
 
@@ -456,6 +518,8 @@
     me: function () { return ME ? { id: ME.uid, nome: ME.nome || '', email: ME.email || '', admin: isAdmin(), app: isAdmin() ? Object.keys(APPS) : (ME.app || []) } : null; },
     pending: function () { return isAdmin() ? pending() : 0; },
     onUsers: function (f) { USUBS.push(f); },
+    // le persone attive che usano quell'app (per condividere una barca), tranne me e gli amministratori che vedono già tutto
+    colleghi: function (app) { return Object.keys(UT).filter(function (id) { return ME && id !== ME.uid && canApp(UT[id], app) && UT[id].ruolo !== 'admin'; }).map(function (id) { return { id: id, nome: UT[id].nome || UT[id].email || 'Senza nome' }; }).sort(function (a, b) { return a.nome.localeCompare(b.nome, 'it'); }); },
     open: open,
     toast: toast
   };
