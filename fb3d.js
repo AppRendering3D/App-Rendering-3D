@@ -266,7 +266,8 @@
   async function gemini(prompt, o, asJson) {
     o = o || {};
     var parts = [{ text: prompt }];
-    for (var i = 0; i < (o.images || []).length; i++) { var b = o.images[i]; parts.push({ inline_data: { mime_type: b.type || 'image/jpeg', data: await blobB64(b) } }); }
+    // labels (facoltativo): una scritta prima di ogni immagine, per poterla chiamare per nome ("Immagine 3")
+    for (var i = 0; i < (o.images || []).length; i++) { var b = o.images[i]; if (o.labels && o.labels[i]) parts.push({ text: String(o.labels[i]) }); parts.push({ inline_data: { mime_type: b.type || 'image/jpeg', data: await blobB64(b) } }); }
     var body = { contents: [{ role: 'user', parts: parts }] };
     if (asJson) body.generationConfig = { responseMimeType: 'application/json' };
     // se un modello ha finito le richieste gratuite del giorno si passa al successivo
@@ -281,11 +282,13 @@
         r = await fetch('https://firebasevertexai.googleapis.com/v1beta/projects/' + CFG.projectId + '/models/' + models[m] + ':generateContent', {
           method: 'POST', headers: h, body: JSON.stringify(body), signal: o.signal });
       } catch (e) { if (e && e.name === 'AbortError') throw { code: 'cancelled', message: 'Annullato' }; throw { code: 'network', message: 'Nessuna connessione' }; }
-      if (r.status !== 429 && r.status !== 404) break;
+      // 429 = finite le richieste, 404 = modello ritirato, 500/503 = modello sovraccarico in quel momento: si prova il successivo
+      if ([429, 404, 500, 503].indexOf(r.status) < 0) break;
       if (r.status === 429 && oggi && m < models.length - 1 && /PerDay/i.test(await r.clone().text().catch(function () { return ''; }))) { finiti[models[m]] = oggi; try { localStorage.setItem('app3d-ai-finiti', JSON.stringify(finiti)); } catch (e) { } }
     }
     if (r.status === 401 || r.status === 403) throw { code: 'ai_off', message: 'App Check ha rifiutato la richiesta' };
     if (r.status === 429) throw { code: 'rate_limited', message: 'Troppe richieste' };
+    if (r.status === 500 || r.status === 503) throw { code: 'busy', message: 'Gemini è sovraccarico' };
     if (!r.ok) throw { code: 'error', message: 'Gemini ha risposto ' + r.status };
     var d = await r.json(), c = d.candidates && d.candidates[0], txt = ((c && c.content && c.content.parts) || []).map(function (p) { return p.thought ? '' : (p.text || ''); }).join('');
     if (!asJson) return txt;
