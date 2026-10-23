@@ -124,10 +124,13 @@
     });
   }
   /* ---------- ogni casa e barca ha il suo proprietario (campo prop) ----------
-     Chi non è amministratore legge solo le sue; le foto seguono la casa o la barca a cui appartengono.
-     Le case e barche senza proprietario (quelle di prima) le vede solo l'amministratore. */
+     prop = uid di chi l'ha creata, oppure 'tutti' per quelle di prima (restano di tutti).
+     Bordo: il proprietario può condividere una barca (campo con = elenco di uid).
+     Chi non è amministratore riceve solo le sue, quelle di tutti e quelle condivise con lui;
+     le foto seguono la casa o la barca a cui appartengono. */
   var OWN = { indiceCase: 'case', 'case': 'case', casaFoto: 'case', indice: 'barche', barche: 'barche', foto: 'barche' };
-  var OWNER = {}; // 'case/<id>' o 'barche/<id>' -> { prop, nome }
+  var TUTTI = 'tutti', OWNER = {}; // 'case/<id>' o 'barche/<id>' -> { prop, nome, con }
+  function colOf(path) { return String(path).split('/')[0]; }
   function ownKey(path, x) {
     var p = String(path).split('/'), c = p[0];
     if (!OWN[c] || p.length !== 2) return null;
@@ -137,16 +140,42 @@
   }
   function owning() { return !!ME && !ME.ospite; }
   function seen(path, x) {
-    var c = String(path).split('/')[0];
-    if (!x || c === 'casaFoto' || c === 'foto') return;
-    var k = ownKey(path, x); if (k && (x.prop || !OWNER[k])) OWNER[k] = { prop: x.prop || '', nome: x.propNome || '' };
+    var c = colOf(path); if (!x || c === 'casaFoto' || c === 'foto') return;
+    var k = ownKey(path, x); if (k) OWNER[k] = { prop: x.prop || TUTTI, nome: x.propNome || '', con: Array.isArray(x.con) ? x.con : [] };
   }
   function withOwner(path, data) {
-    var k = ownKey(path, data); if (!owning() || !OWN[String(path).split('/')[0]]) return data;
-    var o = (k && OWNER[k] && OWNER[k].prop) ? OWNER[k] : { prop: ME.uid, nome: ME.nome || '' };
+    var c = colOf(path), k = ownKey(path, data); if (!owning() || !OWN[c]) return data;
+    var o = k && OWNER[k] ? OWNER[k] : { prop: ME.uid, nome: ME.nome || '', con: [] };
+    if (c === 'barche' && Array.isArray(data.con) && o.prop === ME.uid) o.con = data.con.filter(function (u) { return typeof u === 'string' && u && u !== ME.uid; }); // solo il proprietario cambia con chi è condivisa
     data.prop = o.prop; data.propNome = o.nome;
+    if (OWN[c] === 'barche') data.con = o.con.slice(); else delete data.con;
     if (k) OWNER[k] = o;
     return data;
+  }
+  // le case e barche di prima non hanno proprietario: l'amministratore le segna «di tutti» la prima volta che apre l'app
+  async function segnaVecchie(cols) {
+    var flag = 'app3d-segnate-' + cols.join('-'); try { if (localStorage.getItem(flag)) return; } catch (e) { }
+    for (var i = 0; i < cols.length; i++) {
+      var s = await fs.collection(cols[i]).get();
+      for (var j = 0; j < s.docs.length; j++) { var d = s.docs[j]; if (!d.get('prop')) await d.ref.update({ prop: TUTTI }); }
+    }
+    try { localStorage.setItem(flag, '1'); } catch (e) { }
+  }
+  // più query della stessa raccolta viste come una sola (le mie + di tutti, condivise con me)
+  function multi(qs, name) {
+    function merge(snaps) { var seen = {}, docs = []; snaps.forEach(function (s) { if (s) s.docs.forEach(function (d) { if (!seen[d.id]) { seen[d.id] = 1; docs.push(d); } }); }); return { docs: docs }; }
+    return {
+      where: function (f, op, v) { return multi(qs.map(function (q) { return q.where(f, op, v); }), name); },
+      orderBy: function (f, d) { return multi(qs.map(function (q) { return q.orderBy(f, d); }), name); },
+      limit: function (n) { return multi(qs.map(function (q) { return q.limit(n); }), name); },
+      get: function () { return Promise.all(qs.map(function (q) { return q.get(); })).then(function (ss) { return wrapQuery(merge(ss)); }, function (e) { throw errOf(e); }); },
+      onSnapshot: function (next, err) {
+        var last = qs.map(function () { return null; });
+        var un = qs.map(function (q, i) { return q.onSnapshot(function (s) { last[i] = s; if (last.every(Boolean)) next(wrapQuery(merge(last))); }, function (e) { if (err) err(errOf(e)); }); });
+        return function () { un.forEach(function (u) { u(); }); };
+      },
+      doc: function (id) { return ref(name + '/' + (id || fs.collection(name).doc().id)); }
+    };
   }
   function wrapDoc(d) {
     var x = d.exists ? d.data() : null;
@@ -176,7 +205,14 @@
     };
   }
   var DB = {
-    collection: function (name) { var q = fs.collection(name); if (OWN[name] && owning() && !isAdmin()) q = q.where('prop', '==', ME.uid); return query(q, name); },
+    collection: function (name) {
+      var q = fs.collection(name);
+      if (!OWN[name] || !owning() || isAdmin()) return query(q, name);
+      var qs = [q.where('prop', 'in', [ME.uid, TUTTI])];
+      if (OWN[name] === 'barche') qs.push(q.where('con', 'array-contains', ME.uid));
+      return multi(qs, name);
+    },
+    segnaVecchie: function (app) { return isAdmin() ? segnaVecchie(app === 'casa' ? ['indiceCase', 'case', 'casaFoto'] : ['indice', 'barche', 'foto']).catch(function () { }) : Promise.resolve(); },
     doc: function (path) { return ref(path); }
   };
 
