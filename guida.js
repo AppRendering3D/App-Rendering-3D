@@ -69,7 +69,7 @@
         '<li>In alto passi tra <b>Alto</b>, <b>Fianco</b> e <b>3D</b>.</li></ol>' +
         '<p>Tutto si salva da solo e i colleghi vedono le stesse barche.</p>' },
       { id: 'scheda', tabs: ['scheda'], t: 'Scheda della barca', html:
-        '<ul><li><b>Compila dal documento</b>: foto o PDF di scheda tecnica, brochure o manuale. L’AI propone misure, carena e interni, tu controlli.</li>' +
+        '<ul><li><b>Compila dal documento</b>: puoi scegliere tante foto insieme (anche 20-30: fuori da più lati, coperta, interni) e PDF di scheda tecnica o manuale. L’AI le mette insieme e propone misure, carena e interni, tu controlli. Le foto servono solo per la lettura: non restano nella barca.</li>' +
         '<li>Le misure si scrivono in cm. Il 3D cambia mentre scrivi.</li>' +
         '<li>In fondo trovi i dati del manuale del proprietario, le note e i pulsanti per esportare, duplicare o eliminare la barca.</li></ul>' },
       { id: 'immagini', tabs: ['immagini'], t: 'Immagini e ricalco', html:

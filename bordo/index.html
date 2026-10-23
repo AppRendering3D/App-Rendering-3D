@@ -364,7 +364,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <div id="voce" class="voce" hidden></div>
   <input type="file" id="fileImg" accept="image/*" hidden>
-  <input type="file" id="fileDoc" accept="image/*,application/pdf,.pdf" hidden>
+  <input type="file" id="fileDoc" accept="image/*,application/pdf,.pdf" multiple hidden>
   <input type="file" id="fileJson" accept=".json,application/json" hidden>
 </div>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
@@ -1436,7 +1436,7 @@ function tabScheda() {
   const b = B(), P = b.scafo, m = model(), tr = m.fromTrace;
   let o = '';
   if (b.esempio) o += `<div class="banner"><p><b>Questa è una barca di esempio.</b> Puoi modificarla liberamente, oppure creare la tua dall'archivio.</p></div>`;
-  if (caps.sample) o += docBanner() || `<button class="cta" data-act="docLoad">${I.cam}<span><b>Compila dal documento</b><small>Foto o PDF di scheda tecnica, brochure o manuale: l’AI imposta misure, carena e interni.</small></span></button>`;
+  if (caps.sample) o += docBanner() || `<button class="cta" data-act="docLoad">${I.cam}<span><b>Compila dal documento</b><small>Foto della barca (anche 20-30 insieme: fuori, coperta, interni) o PDF di scheda tecnica e manuale: l’AI le mette insieme e imposta misure, carena e interni.</small></span></button>`;
   o += txtField('b-nome', 'Nome della barca', b.nome, 'data-b', 'nome');
   o += selField('b-tipo', 'Tipo di carena', Object.entries(TIPI), P.tipo, 'data-sc', 'tipo');
   o += `<div class="lab">Dimensioni della carena</div>`;
@@ -2012,6 +2012,7 @@ async function newBoatOk() {
 
 /* ================= crea dal documento (AI) ================= */
 /* Scheda tecnica, brochure, manuale o disegno › Gemini legge misure, carena e interni › anteprima › Usa o Annulla */
+const DOC_MOLTI = `Ti mando N tra foto e documenti della STESSA barca (esterno da varie angolazioni, coperta, interni, schede o disegni). Mettili insieme: confronta le viste per stimare forma e proporzioni, usa le misure scritte quando ci sono e ricostruisci la disposizione degli interni dalle foto degli interni.\n`;
 const DOC_PROMPT = `Questo documento riguarda una barca: scheda tecnica, brochure del cantiere, pagina del manuale del proprietario, disegno o foto.
 Ricava i dati per ricostruirla in 3D. Rispondi solo con un oggetto JSON:
 {"nome": "marca e modello", "tipo": "planante" (motoscafo) | "gommone" (gommone o semirigido) | "vela",
@@ -2034,18 +2035,43 @@ function docShapeBoat(r) {
   const n = Object.keys(out.scheda).length + Object.keys(out.scafo).length + out.el.length;
   return n ? out : null;
 }
-async function docReadBoat(file) {
+// tante foto della stessa barca (anche 20-30) più eventuali PDF: vanno tutte all'AI in una sola richiesta.
+// Le foto si rimpiccioliscono quanto basta per stare insieme sotto il limite di Gemini; non si salvano nella barca.
+const DOC_MAX = 40, DOC_TOT = 17e6;
+async function docBlobs(files) {
+  const pdfs = [], imgs = [];
+  for (const f of files) {
+    if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) { if (f.size > 15e6) throw { msg: 'Un PDF è troppo grande: massimo 15 MB' }; pdfs.push(new Blob([await f.arrayBuffer()], { type: 'application/pdf' })); }
+    else if (/^image\//.test(f.type)) imgs.push(f);
+  }
+  if (!pdfs.length && !imgs.length) throw { msg: 'Servono foto o PDF' };
+  if (pdfs.length + imgs.length > DOC_MAX) throw { msg: 'Massimo ' + DOC_MAX + ' file alla volta' };
+  const pdfB = pdfs.reduce((a, x) => a + x.size, 0);
+  if (pdfB > DOC_TOT) throw { msg: 'I PDF insieme sono troppo grandi' };
+  const loaded = [];
+  for (const f of imgs) { const u = URL.createObjectURL(f); try { loaded.push(await loadImg(u)); } catch (e) { } finally { URL.revokeObjectURL(u); } }
+  // lato lungo: 2400 px con una foto sola, poi sempre meno finché il totale ci sta
+  for (let side = loaded.length > 1 ? 1600 : 2400; ; side = Math.round(side * .8)) {
+    const out = [];
+    for (const img of loaded) {
+      const k = Math.min(1, side / Math.max(img.naturalWidth, img.naturalHeight)), c = document.createElement('canvas');
+      c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      out.push(await new Promise(res => c.toBlob(res, 'image/jpeg', .82)));
+    }
+    if (pdfB + out.reduce((a, x) => a + x.size, 0) * 1.37 <= DOC_TOT || side < 500) return { blobs: pdfs.concat(out), n: pdfs.length + out.length };
+  }
+}
+async function docReadBoat(files) {
   if (!caps.sample || !B() || guard()) { if (!caps.sample) toast('L’AI non è disponibile qui'); return; }
-  const pdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
-  if (!pdf && !/^image\//.test(file.type)) { toast('Serve una foto o un PDF'); return; }
-  if (file.size > 15e6) { toast('File troppo grande: massimo 15 MB'); return; }
-  let blob;
-  if (pdf) blob = new Blob([await file.arrayBuffer()], { type: 'application/pdf' });
-  else { const u = URL.createObjectURL(file); try { const img = await loadImg(u), k = Math.min(1, 2400 / Math.max(img.naturalWidth, img.naturalHeight)), c = document.createElement('canvas'); c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); blob = await new Promise(res => c.toBlob(res, 'image/jpeg', .85)); } catch (e) { toast('Non riesco ad aprire il file'); return; } finally { URL.revokeObjectURL(u); } }
-  const id = B().id, ctl = new AbortController(); S.doc = { state: 'busy', ctl }; S.sel = null; S.tab = 'scheda'; renderPanel(true);
+  files = Array.from(files || []);
+  const id0 = B().id, ctl0 = new AbortController(); S.doc = { state: 'busy', ctl: ctl0, n: files.length, prep: true }; S.sel = null; S.tab = 'scheda'; renderPanel(true);
+  let got; try { got = await docBlobs(files); } catch (e) { if (S.doc && S.doc.ctl === ctl0) S.doc = null; renderPanel(true); toast(e && e.msg || 'Non riesco a leggere i file'); return; }
+  if (!S.doc || S.doc.ctl !== ctl0 || ctl0.signal.aborted || !B() || B().id !== id0) return; // annullato mentre preparavo le foto
+  const blobs = got.blobs, nf = got.n;
+  const id = B().id, ctl = new AbortController(); S.doc = { state: 'busy', ctl, n: nf }; S.sel = null; S.tab = 'scheda'; renderPanel(true);
   let r;
-  try { r = docShapeBoat(await caps.sample.json(DOC_PROMPT, { images: [blob], signal: ctl.signal })); }
-  catch (e) { if (!B() || B().id !== id) return; S.doc = e && e.code === 'cancelled' ? null : { state: 'err', msg: e && e.code === 'ai_off' ? AI_OFF : e && e.code === 'rate_limited' ? 'L’AI ha raggiunto il limite di oggi: riprova più tardi.' : 'Non sono riuscito a leggere il documento. Riprova o prova con una foto più nitida.' }; renderPanel(true); return; }
+  try { r = docShapeBoat(await caps.sample.json((nf > 1 ? DOC_MOLTI.replace('N', nf) : '') + DOC_PROMPT, { images: blobs, signal: ctl.signal })); }
+  catch (e) { if (!B() || B().id !== id) return; S.doc = e && e.code === 'cancelled' ? null : { state: 'err', msg: e && e.code === 'ai_off' ? AI_OFF : e && e.code === 'rate_limited' ? 'L’AI ha raggiunto il limite di oggi: riprova più tardi.' : (nf > 1 ? 'Non sono riuscito a leggere le foto. Riprova, magari con meno foto o più nitide.' : 'Non sono riuscito a leggere il documento. Riprova o prova con una foto più nitida.') }; renderPanel(true); return; }
   if (!B() || B().id !== id) return;
   if (!r) { S.doc = { state: 'err', msg: 'Nel documento non ho trovato misure o dati della barca.' }; renderPanel(true); return; }
   const before = snapB(), b = B();
@@ -2064,18 +2090,18 @@ async function docReadBoat(file) {
 }
 function docBanner() {
   const d = S.doc; if (!d) return '';
-  if (d.state === 'busy') return `<div class="ai busy"><span>Leggo il documento con l’AI</span><button class="btn sm" data-act="docStop">Annulla</button></div>`;
+  if (d.state === 'busy') return `<div class="ai busy"><span>${d.prep && d.n > 1 ? `Preparo ${d.n} foto…` : d.n > 1 ? `Leggo ${d.n} foto e documenti con l’AI` : 'Leggo il documento con l’AI'}</span><button class="btn sm" data-act="docStop">Annulla</button></div>`;
   if (d.state === 'err') return `<div class="banner warn"><p>${esc(d.msg)}</p><div class="row-btns"><button class="btn sm" data-act="docOk">Chiudi</button></div></div>`;
   return `<div class="banner"><p><b>Ecco cosa ho letto:</b> ${d.nDati} misure e dati${d.nEl ? ` e ${d.nEl} elementi degli interni` : ''}. Controlla la barca nelle viste e qui sotto.</p>${d.dv.length ? `<p class="note">Da verificare: ${d.dv.map(esc).join(' · ')}</p>` : ''}<div class="row-btns"><button class="btn sm primary" data-act="docOk">Usa</button><button class="btn sm" data-act="docUndo">Annulla</button></div></div>`;
 }
-async function newBoatFromDoc(file) {
+async function newBoatFromDoc(files) {
   const b = emptyBoat('Barca da documento', 'planante'); b.aggiornato = new Date().toISOString();
   try { await Store.saveBoat(b); } catch (e) { toast('Non riesco a creare la barca'); return; }
   openBoat(b.id);
   for (let i = 0; i < 100 && !(B() && B().id === b.id); i++) await new Promise(r => setTimeout(r, 100));
-  if (B() && B().id === b.id) docReadBoat(file);
+  if (B() && B().id === b.id) docReadBoat(files);
 }
-$('#fileDoc').addEventListener('change', e => { const f = e.target.files && e.target.files[0]; if (!f) return; if (S.docNew) { S.docNew = false; newBoatFromDoc(f); } else docReadBoat(f); });
+$('#fileDoc').addEventListener('change', e => { const f = Array.from(e.target.files || []); if (!f.length) return; if (S.docNew) { S.docNew = false; newBoatFromDoc(f); } else docReadBoat(f); });
 
 
 /* ================= comando a voce (AI) ================= */
