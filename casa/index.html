@@ -3703,7 +3703,7 @@ function setupOnce() {
 /* ================= sito proprio: apri, crea, chiudi ed elimina le case ================= */
 function showArch(on) { $('#arch').hidden = !on; $('#btnArch').hidden = !SITE || on; if (on) renderArch(); }
 // l'amministratore vede anche le case degli altri: scriviamo di chi sono
-const altrui = c => { const me = window.__FB3D && window.__FB3D.me && window.__FB3D.me(); return !!(me && me.admin && c.prop && c.prop !== me.id); };
+const altrui = c => { const me = window.__FB3D && window.__FB3D.me && window.__FB3D.me(); return !!(me && me.admin && c.prop && c.prop !== 'tutti' && c.prop !== me.id); };
 function renderArch() {
   if ($('#arch').hidden) return;
   const fmt = t => { try { return new Date(t).toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' }); } catch (e) { return ''; } };
@@ -3721,6 +3721,7 @@ async function startSite(ui) {
   setupOnce();
   showArch(true);
   try { await Cloud.init(); } catch (e) { S.cases = null; renderArch(); return; }
+  if (Cloud.db.segnaVecchie) Cloud.db.segnaVecchie('casa'); // l'amministratore segna «di tutti» le case di prima
   let first = true;
   Cloud.watchIndex(list => {
     S.cases = list ? list.filter(x => x && x.id) : null; renderArch();

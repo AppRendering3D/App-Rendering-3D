@@ -199,6 +199,7 @@ textarea.text{height:auto;min-height:70px;padding:8px 10px;resize:vertical;font-
 .photo img{width:110px;height:110px;object-fit:cover;border-radius:10px;border:1px solid var(--rule);background:var(--board);flex:none}
 .photo .stack{flex:1;min-width:0}
 .check{display:flex;gap:9px;align-items:center;font-size:14px;cursor:pointer}
+.share{display:grid;gap:8px;margin:4px 0 8px}
 .check input{width:20px;height:20px;accent-color:var(--accent);flex:none}
 .list{display:flex;flex-direction:column;border:1px solid var(--rule);border-radius:12px;overflow:hidden}
 .lrow{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;text-align:left;border:0;border-bottom:1px solid var(--rule);background:var(--board);padding:10px 12px;cursor:pointer}
@@ -577,7 +578,8 @@ function normalizeBoat(src, idHint) {
     op: clamp(nz(r.op, .6), .1, 1), vis: r.vis !== false } : null;
   const out = { v: 1, id: String(p.id || idHint || uid()), nome: String(p.nome || 'Barca').slice(0, 60), esempio: !!p.esempio, aggiornato: p.aggiornato || null, rev: p.rev || null,
     scheda: Object.assign({}, p.scheda || {}), scafo: s, rif: { fianco: ref(p.rif && p.rif.fianco), alto: ref(p.rif && p.rif.alto) }, el: [], circuiti: [],
-    carena: Object.assign(defaultCarena(), p.carena || {}), livelli: Object.assign({}, DEF_LIV, p.livelli || {}) };
+    carena: Object.assign(defaultCarena(), p.carena || {}), livelli: Object.assign({}, DEF_LIV, p.livelli || {}),
+    prop: typeof p.prop === 'string' ? p.prop : '', propNome: typeof p.propNome === 'string' ? p.propNome : '', con: Array.isArray(p.con) ? p.con.filter(x => typeof x === 'string') : [] };
   out.carena.voci = Array.isArray(p.carena && p.carena.voci) ? p.carena.voci.filter(v => v && BASI[v.base]).map(v => ({ id: String(v.id || uid()), nome: String(v.nome || 'Voce'), base: v.base, q: nz(v.q, 1), prezzo: nz(v.prezzo, 0) })) : defaultCarena().voci;
   for (const e of Array.isArray(p.el) ? p.el : []) {
     if (!e || !e.t) continue;
@@ -627,8 +629,8 @@ const useCap = n => { if (!CL) return Promise.resolve(null); try { return CL.use
 const caps = { db: null, user: null, dl: null, sample: null };
 const AI_OFF = 'L’AI non è ancora attiva su questo sito: manca la chiave di sicurezza (reCAPTCHA) in Firebase. Intanto puoi disegnare a mano.';
 const CHUNK = 180000;
-// l'amministratore vede anche le barche degli altri: scriviamo di chi sono
-const altrui = b => { const me = window.__FB3D && window.__FB3D.me && window.__FB3D.me(); return !!(me && me.admin && b.prop && b.prop !== me.id); };
+// le barche degli altri (che vede l'amministratore, o condivise con me): scriviamo di chi sono
+const altrui = b => { const me = window.__FB3D && window.__FB3D.me && window.__FB3D.me(); return !!(me && b.prop && b.prop !== 'tutti' && b.prop !== me.id); };
 const Store = {
   listeners: [],
   async init() {
@@ -1434,6 +1436,18 @@ function tabsHTML() {
   o += ({ scheda: tabScheda, immagini: tabImmagini, interni: tabInterni, impianti: tabImpianti, carena: tabCarena }[S.tab] || tabScheda)();
   return o + '</div>';
 }
+// con chi vedo la barca: il proprietario sceglie i colleghi, gli altri leggono di chi è
+// una barca condivisa con me la posso cambiare ma non eliminare
+function puoEliminare(b) { const F = window.__FB3D, me = F && F.me && F.me(); return !me || me.admin || !b.prop || b.prop === 'tutti' || b.prop === me.id; }
+function shareBlock(b) {
+  const F = window.__FB3D, me = F && F.me && F.me(); if (!me || F.libera) return '';
+  if (b.prop === 'tutti') return `<div class="lab">Chi la vede</div><p class="note">Barca di prima: la vedono tutti quelli che usano Bordo.</p>`;
+  if (b.prop && b.prop !== me.id) return `<div class="lab">Chi la vede</div><p class="note">Barca di ${esc(b.propNome || 'un altro account')}${b.con.includes(me.id) ? ', condivisa con te' : ''}. Solo il proprietario decide con chi condividerla.</p>`;
+  const list = F.colleghi ? F.colleghi('bordo') : [];
+  let o = `<div class="lab">Condividi con</div><p class="note">La vedi solo tu${b.con.length ? ' e le persone spuntate' : ''}. Chi spunti la vede e la può modificare, ma non eliminare.</p>`;
+  o += list.length ? `<div class="share">${list.map(u => `<label class="check"><input type="checkbox" data-act="share" data-v="${esc(u.id)}"${b.con.includes(u.id) ? ' checked' : ''}> ${esc(u.nome)}</label>`).join('')}</div>` : `<p class="note">Nessun collega usa ancora Bordo.</p>`;
+  return o;
+}
 function tabScheda() {
   const b = B(), P = b.scafo, m = model(), tr = m.fromTrace;
   let o = '';
@@ -1462,7 +1476,8 @@ function tabScheda() {
     else o += numField('sc-' + k, l, dash(v), u === 'n' ? '' : u, 'data-sn', k);
   }
   o += `</div><div class="field"><label for="sc-note">Note</label><textarea id="sc-note" class="text" data-s="note">${esc(b.scheda.note || '')}</textarea></div>`;
-  o += `<div class="lab">Barca</div><div class="row-btns">${caps.dl ? '<button class="btn" data-act="exportBoat">Esporta copia</button>' : ''}<button class="btn" data-act="dupBoat">Duplica</button><button class="btn danger${S.armed === 'delBoat' ? ' armed' : ''}" data-act="delBoat">${S.armed === 'delBoat' ? 'Tocca ancora per eliminarla' : 'Elimina barca'}</button></div>`;
+  o += shareBlock(b);
+  o += `<div class="lab">Barca</div><div class="row-btns">${caps.dl ? '<button class="btn" data-act="exportBoat">Esporta copia</button>' : ''}<button class="btn" data-act="dupBoat">Duplica</button>${puoEliminare(b) ? `<button class="btn danger${S.armed === 'delBoat' ? ' armed' : ''}" data-act="delBoat">${S.armed === 'delBoat' ? 'Tocca ancora per eliminarla' : 'Elimina barca'}</button>` : ''}</div>`;
   return o;
 }
 function refBlock(v) {
@@ -2262,6 +2277,7 @@ document.getElementById('app').addEventListener('click', async e => {
     case 'rcClose': closeRect(); break;
     case 'traceStart': traceStart(v, false); break;
     case 'traceCal': traceStart(v, true); break;
+    case 'share': if (!guard() && v) { b.con = b.con.includes(v) ? b.con.filter(x => x !== v) : b.con.concat(v); changed(); renderPanel(true); } break;
     case 'delRef': if (!guard()) { if (S.armed !== 'delRef' + v) { arm('delRef' + v); break; } b.rif[v] = null; S.armed = null; MODEL = null; changed(); renderPanel(true); } break;
     case 'trUndo': S.trace.pts.pop(); renderHint(); requestDraw(); break;
     case 'trNext': traceNext(); break;
@@ -2315,6 +2331,7 @@ async function start(hotData) {
   const ui = hotData && hotData.tab ? hotData : readUI();
   renderArchive();
   await Store.init();
+  if (caps.db && caps.db.segnaVecchie) caps.db.segnaVecchie('bordo'); // l'amministratore segna «di tutti» le barche di prima
   S.impostazioni = await Store.getSettings();
   setStatus(S.readOnly ? 'ro' : S.mode === 'local' ? 'local' : 'saved');
   let first = true;

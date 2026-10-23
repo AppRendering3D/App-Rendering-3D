@@ -146,7 +146,7 @@
   function withOwner(path, data) {
     var c = colOf(path), k = ownKey(path, data); if (!owning() || !OWN[c]) return data;
     var o = k && OWNER[k] ? OWNER[k] : { prop: ME.uid, nome: ME.nome || '', con: [] };
-    if (c === 'barche' && Array.isArray(data.con) && o.prop === ME.uid) o.con = data.con.filter(function (u) { return typeof u === 'string' && u && u !== ME.uid; }); // solo il proprietario cambia con chi è condivisa
+    if (c === 'barche' && Array.isArray(data.con) && k && OWNER[k] && o.prop === ME.uid) o.con = data.con.filter(function (u) { return typeof u === 'string' && u && u !== ME.uid; }); // solo il proprietario cambia con chi è condivisa
     data.prop = o.prop; data.propNome = o.nome;
     if (OWN[c] === 'barche') data.con = o.con.slice(); else delete data.con;
     if (k) OWNER[k] = o;
@@ -518,6 +518,8 @@
     me: function () { return ME ? { id: ME.uid, nome: ME.nome || '', email: ME.email || '', admin: isAdmin(), app: isAdmin() ? Object.keys(APPS) : (ME.app || []) } : null; },
     pending: function () { return isAdmin() ? pending() : 0; },
     onUsers: function (f) { USUBS.push(f); },
+    // le persone attive che usano quell'app (per condividere una barca), tranne me e gli amministratori che vedono già tutto
+    colleghi: function (app) { return Object.keys(UT).filter(function (id) { return ME && id !== ME.uid && canApp(UT[id], app) && UT[id].ruolo !== 'admin'; }).map(function (id) { return { id: id, nome: UT[id].nome || UT[id].email || 'Senza nome' }; }).sort(function (a, b) { return a.nome.localeCompare(b.nome, 'it'); }); },
     open: open,
     toast: toast
   };
