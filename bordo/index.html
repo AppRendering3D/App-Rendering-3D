@@ -899,7 +899,7 @@ function hullThumbData(b) {
 function sovraCols(b, m) {
   const sv = b.sovra; if (!sv) return [];
   const hw = sv.hw.length >= 2 ? sv.hw : null, out = [];
-  for (const q of sv.pezzi) {
+  for (const q of sv.pezzi.concat(tugaDaTetto(sv, m))) {
     if (q.k === 'vetro' || SOVRA_LINEA[q.k]) continue;
     const xs = q.p.map(p => p[0]), x0 = Math.min(...xs), x1 = Math.max(...xs), cols = [];
     // la larghezza dall'alto vale solo se copre buona parte del pezzo (l'AI a volte ricalca un'altra cosa)
@@ -924,6 +924,22 @@ function sovraCols(b, m) {
     if (zb > c.z1 && zb - c.z1 < 25) c.z1 = zb + 2;
   }
   return out;
+}
+// se l'AI ha visto l'hard-top ma non la cabina, la cabina si ricostruisce sotto il tetto: parete dietro ai montanti, parabrezza inclinato davanti
+function tugaDaTetto(sv, m) {
+  if (sv.pezzi.some(q => q.k === 'tuga')) return [];
+  const t = sv.pezzi.find(q => q.k === 'tetto'); if (!t) return [];
+  const xs = t.p.map(p => p[0]), x0 = Math.min(...xs), x1 = Math.max(...xs), len = x1 - x0; if (len < 60) return [];
+  const sh = x => m.sh(clamp(x / m.L, 0, 1)), zb = x => { const z = crossAt(t.p, clamp(x, x0 + 1, x1 - 1), 0, 1); return z.length ? Math.min(...z) : null; };
+  const mt = sv.pezzi.filter(q => q.k === 'montante').map(q => Math.max(...q.p.map(p => p[0]))).filter(x => x > x0 - 30 && x < x0 + len * .6);
+  const xa = clamp(mt.length ? Math.max(...mt) + 8 : x0 + len * .3, x0, x0 + len * .6), xr = x1 - len * .08;
+  const za = zb(xa), zr = zb(xr); if (za == null || zr == null || za - sh(xa) < 60) return [];
+  const xd = Math.min(m.L * .9, xr + (zr - sh(xr)) * .9), p = [[xa, sh(xa)], [xa, za - 1], [xr, zr - 1], [xd, sh(xd) + 4]];
+  for (let i = 1; i < 8; i++) { const x = lerp(xd, xa, i / 8); p.push([x, sh(x)]); }
+  // finestrino laterale nella parte alta della cabina
+  const zw0 = x => sh(x) + (zb(x) - sh(x)) * .45, xw0 = xa + 12, xw1 = xr - 6;
+  const v = xw1 - xw0 > 40 ? [{ k: 'vetro', n: 'Finestrini', p: [[xw0, zw0(xw0)], [xw0, zb(xw0) - 8], [xw1, zb(xw1) - 8], [xw1, zw0(xw1)]] }] : [];
+  return [{ k: 'tuga', n: 'Cabina', p }].concat(v);
 }
 // sezione trasversale di un pezzo in [y, z, sopra]: tuga con fiancate inclinate e spigoli arrotondati, tetto sottile e bombato
 function sovraRing(k) {
@@ -1384,7 +1400,7 @@ function rebuild3D() {
         for (const sg of [1, -1]) tube(a.map(p => [p[0], p[1], sg * w]), 2.5);
       }
     }
-    for (const q of b.sovra.pezzi) {
+    for (const q of b.sovra.pezzi.concat(tugaDaTetto(b.sovra, m))) {
       if (q.k !== 'vetro') continue;
       const ws = q.p.map(p => sovraW(pz, p[0], p[1])); if (ws.some(w => w == null)) continue;
       // triangoli piccoli, così il vetro segue la fiancata curva della tuga
@@ -2280,8 +2296,17 @@ async function docSagoma(base, viste, ctl) {
     if (!B() || B().id !== id) return;
     if (ctl.signal.aborted) { const keep = { rev: B().rev, aggiornato: B().aggiornato }; S.boat = Object.assign(normalizeBoat(JSON.parse(base.before)), keep); MODEL = null; S.doc = null; renderPanel(true); requestDraw(); return; } // annullato: tutto come prima
   }
+  sottoCoperta(B());
   S.doc = Object.assign({}, base, { state: 'preview', dv, sag, viste });
   T3.framed = false; changed(); fitAll(); renderPanel(true);
+}
+// serbatoi, batterie e motori letti dall'AI stanno sotto la coperta: se sporgono li abbasso
+const SOTTO = { serb_carb: 1, serb_acqua: 1, serb_nere: 1, batterie: 1, entrobordo: 1, generatore: 1 };
+function sottoCoperta(b) {
+  MODEL = null; const m = model();
+  for (const e of b.el) { if (e.t !== 'arredo' || !SOTTO[e.k]) continue;
+    const t = clamp(e.x / m.L, 0, 1), top = m.sh(t) - 8, bot = m.kl(t) + 5;
+    if (e.z + e.h > top) { e.h = Math.round(Math.min(e.h, Math.max(10, top - bot))); e.z = Math.round(top - e.h); } }
 }
 // miniature delle immagini lette, per scegliere a mano quali sono il fianco, la pianta e la vista di prua
 function docThumb(d, i) {
