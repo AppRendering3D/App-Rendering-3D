@@ -442,6 +442,8 @@ const ARREDI = [
   { k: 'batterie', n: 'Vano batterie', w: 60, d: 35, h: 25, c: '#2F3438' },
   { k: 'entrobordo', n: 'Motore entrobordo', w: 90, d: 70, h: 70, c: '#4A5258' },
   { k: 'fuoribordo', n: 'Motore fuoribordo', w: 50, d: 45, h: 150, c: '#E9EAEA' },
+  { k: 'elica', n: 'Elica e asse', w: 150, d: 46, h: 46, c: '#C9A44C' },
+  { k: 'tavolo', n: 'Tavolo', w: 100, d: 60, h: 72, c: '#8A5A33' },
   { k: 'generatore', n: 'Generatore', w: 60, d: 45, h: 50, c: '#C9CED1' },
   { k: 'frigo', n: 'Frigorifero', w: 50, d: 45, h: 60, c: '#DADFE2' },
   { k: 'generico', n: 'Elemento su misura', w: 60, d: 40, h: 40, c: '#C8C2B8' },
@@ -571,7 +573,7 @@ function makeExample() {
 function nz(v, d) { const n = num(v); return n == null ? d : n; }
 function normPts(a) { return Array.isArray(a) ? a.filter(p => Array.isArray(p) && p.length >= 2 && p.every(Number.isFinite)).map(p => p.slice(0, 3)) : []; }
 // tuga, tetto e vetri letti dai disegni: contorni di fianco in cm (x da poppa, z sopra il galleggiamento) e mezza larghezza vista dall'alto
-const SOVRA = { tuga: 'Tuga', tetto: 'Tetto', vetro: 'Vetro', plancetta: 'Plancetta', motore: 'Motore', ringhiera: 'Battagliola', montante: 'Montante' };
+const SOVRA = { tuga: 'Tuga', tetto: 'Tetto', vetro: 'Vetro', oblo: 'Oblò', plancetta: 'Plancetta', motore: 'Motore', ringhiera: 'Battagliola', montante: 'Montante' };
 const SOVRA_LINEA = { ringhiera: 1, montante: 1 }; // linee (corrimano, montanti); gli altri sono contorni chiusi
 function normSovra(v) {
   if (!v || !Array.isArray(v.pezzi)) return null;
@@ -899,8 +901,8 @@ function hullThumbData(b) {
 function sovraCols(b, m) {
   const sv = b.sovra; if (!sv) return [];
   const hw = sv.hw.length >= 2 ? sv.hw : null, out = [];
-  for (const q of sv.pezzi) {
-    if (q.k === 'vetro' || SOVRA_LINEA[q.k]) continue;
+  for (const q of sv.pezzi.concat(tugaDaTetto(sv, m))) {
+    if (q.k === 'vetro' || q.k === 'oblo' || SOVRA_LINEA[q.k]) continue;
     const xs = q.p.map(p => p[0]), x0 = Math.min(...xs), x1 = Math.max(...xs), cols = [];
     // la larghezza dall'alto vale solo se copre buona parte del pezzo (l'AI a volte ricalca un'altra cosa)
     const hwOk = hw && Math.min(x1, hw[hw.length - 1][0]) - Math.max(x0, hw[0][0]) > (x1 - x0) * .6;
@@ -924,6 +926,22 @@ function sovraCols(b, m) {
     if (zb > c.z1 && zb - c.z1 < 25) c.z1 = zb + 2;
   }
   return out;
+}
+// se l'AI ha visto l'hard-top ma non la cabina, la cabina si ricostruisce sotto il tetto: parete dietro ai montanti, parabrezza inclinato davanti
+function tugaDaTetto(sv, m) {
+  if (sv.pezzi.some(q => q.k === 'tuga')) return [];
+  const t = sv.pezzi.find(q => q.k === 'tetto'); if (!t) return [];
+  const xs = t.p.map(p => p[0]), x0 = Math.min(...xs), x1 = Math.max(...xs), len = x1 - x0; if (len < 60) return [];
+  const sh = x => m.sh(clamp(x / m.L, 0, 1)), zb = x => { const z = crossAt(t.p, clamp(x, x0 + 1, x1 - 1), 0, 1); return z.length ? Math.min(...z) : null; };
+  const mt = sv.pezzi.filter(q => q.k === 'montante').map(q => Math.max(...q.p.map(p => p[0]))).filter(x => x > x0 - 30 && x < x0 + len * .6);
+  const xa = clamp(mt.length ? Math.max(...mt) + 8 : x0 + len * .3, x0, x0 + len * .6), xr = x1 - len * .08;
+  const za = zb(xa), zr = zb(xr); if (za == null || zr == null || za - sh(xa) < 60) return [];
+  const xd = Math.min(m.L * .9, xr + (zr - sh(xr)) * .9), p = [[xa, sh(xa)], [xa, za - 1], [xr, zr - 1], [xd, sh(xd) + 4]];
+  for (let i = 1; i < 8; i++) { const x = lerp(xd, xa, i / 8); p.push([x, sh(x)]); }
+  // finestrino laterale nella parte alta della cabina
+  const zw0 = x => sh(x) + (zb(x) - sh(x)) * .45, xw0 = xa + 12, xw1 = xr - 6;
+  const v = xw1 - xw0 > 40 ? [{ k: 'vetro', n: 'Finestrini', p: [[xw0, zw0(xw0)], [xw0, zb(xw0) - 8], [xw1, zb(xw1) - 8], [xw1, zw0(xw1)]] }] : [];
+  return [{ k: 'tuga', n: 'Cabina', p }].concat(v);
 }
 // sezione trasversale di un pezzo in [y, z, sopra]: tuga con fiancate inclinate e spigoli arrotondati, tetto sottile e bombato
 function sovraRing(k) {
@@ -1048,8 +1066,8 @@ function drawHullSide(m) {
   if (m.tube) h += `<polyline class="tube" style="stroke-width:${m.P.tubo}" points="${m.tube.slice(0, Math.ceil(m.tube.length / 2)).map(p => r1(p[0]) + ',' + r1(-p[2])).join(' ')}"/>`;
   for (const a of m.app) h += `<polygon class="appf" points="${a.poly.map(p => r1(p[0]) + ',' + r1(-p[1])).join(' ')}"/>`;
   h += `<polygon class="hullf${b.livelli.rif && b.rif.fianco && b.rif.fianco.vis ? ' ref' : ''}" style="fill:url(#gHull)" points="${poly}"/>`;
-  if (b.sovra) for (const k of ['plancetta', 'motore', 'tuga', 'tetto', 'vetro', 'montante', 'ringhiera']) for (const q of b.sovra.pezzi) if (q.k === k) { const pp = q.p.map(p => r1(p[0]) + ',' + r1(-p[1])).join(' ');
-    h += SOVRA_LINEA[k] ? `<polyline class="sovl" points="${pp}"/>` : `<polygon class="sovf${k === 'vetro' ? ' v' : k === 'motore' ? ' m' : ''}${b.livelli.rif && b.rif.fianco && b.rif.fianco.vis ? ' ref' : ''}" points="${pp}"/>`; }
+  if (b.sovra) for (const k of ['plancetta', 'motore', 'tuga', 'tetto', 'vetro', 'oblo', 'montante', 'ringhiera']) for (const q of b.sovra.pezzi) if (q.k === k) { const pp = q.p.map(p => r1(p[0]) + ',' + r1(-p[1])).join(' ');
+    h += SOVRA_LINEA[k] ? `<polyline class="sovl" points="${pp}"/>` : `<polygon class="sovf${k === 'vetro' || k === 'oblo' ? ' v' : k === 'motore' ? ' m' : ''}${b.livelli.rif && b.rif.fianco && b.rif.fianco.vis ? ' ref' : ''}" points="${pp}"/>`; }
   h += `<line class="wl" x1="${r1(-80)}" y1="0" x2="${r1(m.L + 80)}" y2="0"/><text class="wllbl" x="${r1(m.L + 60 / s)}" y="${r1(-8 / s)}" font-size="${r1(10 / s)}">LWL</text>`;
   return h;
 }
@@ -1384,9 +1402,10 @@ function rebuild3D() {
         for (const sg of [1, -1]) tube(a.map(p => [p[0], p[1], sg * w]), 2.5);
       }
     }
-    for (const q of b.sovra.pezzi) {
-      if (q.k !== 'vetro') continue;
-      const ws = q.p.map(p => sovraW(pz, p[0], p[1])); if (ws.some(w => w == null)) continue;
+    for (const q of b.sovra.pezzi.concat(tugaDaTetto(b.sovra, m))) {
+      if (q.k !== 'vetro' && q.k !== 'oblo') continue;
+      const wOf = q.k === 'oblo' ? (x, z) => yAtSection(m.section(clamp(x / m.L, 0, 1)), z) : (x, z) => sovraW(pz, x, z);
+      const ws = q.p.map(p => wOf(p[0], p[1])); if (ws.some(w => w == null)) continue;
       // triangoli piccoli, così il vetro segue la fiancata curva della tuga
       const tri = THREE.ShapeUtils.triangulateShape(q.p.map(p => new THREE.Vector2(p[0], p[1])), []), small = [];
       const split = (a, c, d, n) => { const e = [[a, c], [c, d], [d, a]].map(([u, v]) => Math.hypot(u[0] - v[0], u[1] - v[1])), mx = Math.max(...e);
@@ -1394,7 +1413,7 @@ function rebuild3D() {
         split(u, mid, o, n + 1); split(mid, v, o, n + 1); };
       for (const t of tri) split(q.p[t[0]], q.p[t[1]], q.p[t[2]], 0);
       const mat = M('#22313A', .15, .2, { side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 });
-      for (const sg of [1, -1]) { const pos = []; for (const p of small) { const w = sovraW(pz, p[0], p[1]); pos.push(p[0], p[1], sg * ((w == null ? Math.max(...ws) : w) + 1)); }
+      for (const sg of [1, -1]) { const pos = []; for (const p of small) { const w = wOf(p[0], p[1]); pos.push(p[0], p[1], sg * ((w == null ? Math.max(...ws) : w) + 1)); }
         const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.computeVertexNormals(); g.add(new THREE.Mesh(geo, mat)); }
     }
   }
@@ -1490,6 +1509,12 @@ const ARR3 = {
   batterie(g, e) { const n = Math.max(1, Math.round(e.w / 32)), bw = e.w / n - 2; for (let i = 0; i < n; i++) { const x = -e.w / 2 + (i + .5) * e.w / n; Bx(g, bw, e.h, e.d, x, e.h / 2, 0, M(e.c, .6)); Cy(g, 1.4, 1.4, 2.5, x - bw * .3, e.h + 1.2, 0, M('#B3261E', .5)); Cy(g, 1.4, 1.4, 2.5, x + bw * .3, e.h + 1.2, 0, M('#1E1E1E', .5)); } },
   entrobordo(g, e) { const m = M(e.c, .45, .4); Bx(g, e.w, e.h * .7, e.d, 0, e.h * .35, 0, m); Bx(g, e.w * .8, e.h * .3, e.d * .7, 0, e.h * .85, 0, M('#B3261E', .5)); },
   fuoribordo(g, e) { const m = M(e.c, .35); Bx(g, e.w, e.h * .38, e.d, 0, e.h * .8, 0, m); Bx(g, e.w * .35, e.h * .55, e.d * .45, 0, e.h * .35, 0, M('#2A2F33', .5)); Bx(g, e.w * .2, e.h * .14, e.d * .9, 0, e.h * .07, 0, M('#2A2F33', .5)); },
+  tavolo(g, e) { Bx(g, e.w, 3, e.d, 0, e.h - 1.5, 0, M(e.c, .5)); Cy(g, 3, 3, e.h - 3, 0, (e.h - 3) / 2, 0, M('#9AA0A3', .3, .6)); Cy(g, Math.min(e.w, e.d) * .25, Math.min(e.w, e.d) * .25, 2, 0, 1, 0, M('#9AA0A3', .3, .6)); },
+  // elica a poppa (x locale -w/2) con l'asse che sale verso prua fino allo scafo
+  elica(g, e) { const r = Math.min(e.d, e.h) / 2, br = M(e.c, .3, .9), st = M('#B8BEC2', .25, .9), a = Math.atan2(Math.max(0, e.h - r * 2) + r * .6, e.w), x0 = -e.w / 2, y0 = r;
+    const ax = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.2, e.w, 12), st); ax.rotation.z = Math.PI / 2 - a; ax.position.set(0, y0 + Math.tan(a) * e.w / 2, 0); g.add(ax);
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(4, 5.5, 12, 16), br); hub.rotation.z = Math.PI / 2; hub.position.set(x0, y0, 0); g.add(hub);
+    for (let i = 0; i < 3; i++) { const bl = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 8), br); bl.scale.set(3, r * .48, r * .2); const t = i * Math.PI * 2 / 3; bl.position.set(x0, y0 + Math.cos(t) * r * .52, Math.sin(t) * r * .52); bl.rotation.x = -t; bl.rotateY(.5); g.add(bl); } },
   generatore(g, e) { Bx(g, e.w, e.h, e.d, 0, e.h / 2, 0, M(e.c, .5)); },
   frigo(g, e) { Bx(g, e.w, e.h, e.d, 0, e.h / 2, 0, M(e.c, .3, .2)); },
   mobile(g, e) { Bx(g, e.w, e.h, e.d, 0, e.h / 2, 0, M(e.c, .55)); Bx(g, .6, e.h - 6, .6, 0, e.h / 2, e.d / 2 + .3, M(shade(e.c, -.35), .6), true); },
@@ -2280,8 +2305,17 @@ async function docSagoma(base, viste, ctl) {
     if (!B() || B().id !== id) return;
     if (ctl.signal.aborted) { const keep = { rev: B().rev, aggiornato: B().aggiornato }; S.boat = Object.assign(normalizeBoat(JSON.parse(base.before)), keep); MODEL = null; S.doc = null; renderPanel(true); requestDraw(); return; } // annullato: tutto come prima
   }
+  sottoCoperta(B());
   S.doc = Object.assign({}, base, { state: 'preview', dv, sag, viste });
   T3.framed = false; changed(); fitAll(); renderPanel(true);
+}
+// serbatoi, batterie e motori letti dall'AI stanno sotto la coperta: se sporgono li abbasso
+const SOTTO = { serb_carb: 1, serb_acqua: 1, serb_nere: 1, batterie: 1, entrobordo: 1, generatore: 1 };
+function sottoCoperta(b) {
+  MODEL = null; const m = model();
+  for (const e of b.el) { if (e.t !== 'arredo' || !SOTTO[e.k]) continue;
+    const t = clamp(e.x / m.L, 0, 1), top = m.sh(t) - 8, bot = m.kl(t) + 5;
+    if (e.z + e.h > top) { e.h = Math.round(Math.min(e.h, Math.max(10, top - bot))); e.z = Math.round(top - e.h); } }
 }
 // miniature delle immagini lette, per scegliere a mano quali sono il fianco, la pianta e la vista di prua
 function docThumb(d, i) {
@@ -2350,7 +2384,7 @@ Rispondi solo con JSON:
   "coperta": 12-20 punti lungo il bordo superiore della fiancata (capodibanda) da poppa a prua, senza battagliola, pulpito o tuga,
   "fondo": 12-20 punti lungo il contorno più basso dello scafo (la chiglia vista di fianco) da poppa a prua, fino alla ruota di prua dove incontra la coperta: non gli spigoli o i pattini disegnati sulla carena, e non l'invasatura o il carrello sotto la barca,
   "appendici": [contorni di 4-10 punti di piede o gambo del motore, elica, timone, chiglia o pinne, solo se si vedono],
-  "sovrastruttura": [{"tipo": "tuga" (cabina o timoneria chiusa sopra la coperta) | "tetto" (hard-top, tettuccio o roll-bar) | "vetro" (finestrino laterale o parabrezza) | "plancetta" (plancetta di poppa) | "motore" (fuoribordo o piede poppiero, la parte fuori dallo scafo), "nome": "breve", "contorno": 6-20 punti del contorno chiuso}],
+  "sovrastruttura": [{"tipo": "tuga" (cabina o timoneria chiusa sopra la coperta) | "tetto" (hard-top, tettuccio o roll-bar) | "vetro" (finestrino laterale o parabrezza) | "oblo" (oblò o finestrella sulla fiancata dello scafo, o il foro dell'elica di prua) | "plancetta" (plancetta di poppa) | "motore" (fuoribordo o piede poppiero, la parte fuori dallo scafo), "nome": "breve", "contorno": 6-20 punti del contorno chiuso}],
   "ringhiere": [punti lungo il corrimano in alto di pulpito, battagliola o tientibene, da poppa a prua; una lista per ogni ringhiera],
   "montanti": [[[y,x],[y,x]] punto in basso e punto in alto di ogni montante che regge l'hard-top o il tettuccio]}` : ''}${viste.length === 2 ? ',\n ' : ''}${viste.includes('alto') ? `"alto": {"asse": [[y,x],[y,x]] il punto più a poppa e il punto più a prua sull'asse centrale della barca,
   "bordo": 12-20 punti lungo il bordo esterno della coperta su un solo lato, da poppa a prua,
